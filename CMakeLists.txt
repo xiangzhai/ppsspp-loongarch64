@@ -56,6 +56,8 @@ if(CMAKE_SYSTEM_PROCESSOR)
 		set(X86_DEVICE ON)
 	elseif(${CMAKE_SYSTEM_PROCESSOR} MATCHES "^mips")
 		set(MIPS_DEVICE ON)
+	elseif(${CMAKE_SYSTEM_PROCESSOR} MATCHES "^loongarch64")
+		set(LOONGARCH64_DEVICE ON)
 	else()
 		message("Unknown CMAKE_SYSTEM_PROCESSOR: ${CMAKE_SYSTEM_PROCESSOR}")
 	endif()
@@ -1243,6 +1245,11 @@ list(APPEND CoreExtra
 list(APPEND CoreExtra
 	Core/MIPS/MIPS/MipsJit.cpp
 	Core/MIPS/MIPS/MipsJit.h
+)
+
+list(APPEND CoreExtra
+	Core/MIPS/LOONGARCH64/LoongArch64Jit.cpp
+	Core/MIPS/LOONGARCH64/LoongArch64Jit.h
 )
 
 if(NOT MOBILE_DEVICE)
