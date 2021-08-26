@@ -3,8 +3,8 @@
 	xmlns:tools="http://schemas.android.com/tools"
     package="org.ppsspp.ppsspp"
     android:installLocation="auto"
-    android:versionCode="111020000"
-    android:versionName="1.11.2.0">
+    android:versionCode="111030000"
+    android:versionName="1.11.3.0">
     <!-- Note that versionCode should be in the format xyyzzrrrr. Example: 110030000 -->
     <!-- In this same case, versionName should be 1.10.3.0 -->
     <!-- Also note that we are overriding these values anyway from gradle. -->
@@ -19,6 +19,9 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
 
+    <!-- I tried using android:maxSdkVersion="29" on WRITE/READ_EXTERNAL_STORAGE, but that made
+    <it so that in legacy mode, you can't ask for permission anymore. So removed that. -->
+
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -30,7 +33,7 @@
     <uses-permission-sdk-23 android:name="android.permission.RECORD_AUDIO" />
 
     <!-- AndroidX minimum SDK workaround. We don't care if it's broken on older versions. -->
-    <uses-sdk tools:overrideLibrary="androidx.appcompat.resources,androidx.appcompat,androidx.fragment,androidx.drawerlayout,androidx.vectordrawable.animated,androidx.vectordrawable,androidx.viewpager,androidx.loader,androidx.activity,androidx.annotation,androidx.customview,androidx.cursoradapter,androidx.arch,androidx.collection,androidx.core,androidx.versionedparcelable,androidx.interpolator,androidx.lifecycle,androidx.loader,androidx.savedstate,androidx.lifecycle.viewmodel,androidx.lifecycle.livedata,androidx.lifecycle.livedata.core,androidx.arch.core"/>
+    <uses-sdk tools:overrideLibrary="androidx.appcompat.resources,androidx.appcompat,androidx.fragment,androidx.drawerlayout,androidx.vectordrawable.animated,androidx.vectordrawable,androidx.viewpager,androidx.loader,androidx.activity,androidx.annotation,androidx.customview,androidx.cursoradapter,androidx.arch,androidx.collection,androidx.core,androidx.versionedparcelable,androidx.interpolator,androidx.lifecycle,androidx.loader,androidx.savedstate,androidx.lifecycle.viewmodel,androidx.lifecycle.livedata,androidx.lifecycle.livedata.core,androidx.arch.core,androidx.documentfile"/>
 
     <supports-screens
         android:largeScreens="true"
@@ -45,7 +48,8 @@
         android:logo="@drawable/ic_banner"
         android:isGame="true"
         android:banner="@drawable/tv_banner"
-        android:requestLegacyExternalStorage="true">
+        android:requestLegacyExternalStorage="true"
+        android:preserveLegacyExternalStorage="true">
         <meta-data android:name="android.max_aspect" android:value="2.4" />
         <activity
             android:name=".PpssppActivity"

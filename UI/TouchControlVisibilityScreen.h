@@ -28,6 +28,7 @@ struct TouchButtonToggle {
 	const char *key;
 	bool *show;
 	ImageID img;
+	std::function<UI::EventReturn(UI::EventParams&)> handle;
 };
 
 class TouchControlVisibilityScreen : public UIDialogScreenWithBackground {
@@ -37,7 +38,6 @@ public:
 
 protected:
 	UI::EventReturn OnToggleAll(UI::EventParams &e);
-	UI::EventReturn RightAnalogBindScreen(UI::EventParams &e);
 
 private:
 	std::vector<TouchButtonToggle> toggles_;

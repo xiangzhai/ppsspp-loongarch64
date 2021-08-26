@@ -65,15 +65,17 @@ void SymbolMap::Clear() {
 	activeNeedUpdate_ = false;
 }
 
-bool SymbolMap::LoadSymbolMap(const char *filename) {
+bool SymbolMap::LoadSymbolMap(const Path &filename) {
 	Clear();  // let's not recurse the lock
 
 	std::lock_guard<std::recursive_mutex> guard(lock_);
 
+	// TODO(scoped): Use gzdopen instead.
+
 #if defined(_WIN32) && defined(UNICODE)
-	gzFile f = gzopen_w(ConvertUTF8ToWString(filename).c_str(), "r");
+	gzFile f = gzopen_w(filename.ToWString().c_str(), "r");
 #else
-	gzFile f = gzopen(filename, "r");
+	gzFile f = gzopen(filename.c_str(), "r");
 #endif
 
 	if (f == Z_NULL)
@@ -186,7 +188,7 @@ bool SymbolMap::LoadSymbolMap(const char *filename) {
 	return started;
 }
 
-void SymbolMap::SaveSymbolMap(const char *filename) const {
+void SymbolMap::SaveSymbolMap(const Path &filename) const {
 	std::lock_guard<std::recursive_mutex> guard(lock_);
 
 	// Don't bother writing a blank file.
@@ -194,10 +196,11 @@ void SymbolMap::SaveSymbolMap(const char *filename) const {
 		return;
 	}
 
+	// TODO(scoped): Use gzdopen
 #if defined(_WIN32) && defined(UNICODE)
-	gzFile f = gzopen_w(ConvertUTF8ToWString(filename).c_str(), "w9");
+	gzFile f = gzopen_w(filename.ToWString().c_str(), "w9");
 #else
-	gzFile f = gzopen(filename, "w9");
+	gzFile f = gzopen(filename.c_str(), "w9");
 #endif
 
 	if (f == Z_NULL)
@@ -222,7 +225,7 @@ void SymbolMap::SaveSymbolMap(const char *filename) const {
 	gzclose(f);
 }
 
-bool SymbolMap::LoadNocashSym(const char *filename) {
+bool SymbolMap::LoadNocashSym(const Path &filename) {
 	std::lock_guard<std::recursive_mutex> guard(lock_);
 	FILE *f = File::OpenCFile(filename, "r");
 	if (!f)
@@ -280,7 +283,7 @@ bool SymbolMap::LoadNocashSym(const char *filename) {
 	return true;
 }
 
-void SymbolMap::SaveNocashSym(const char *filename) const {
+void SymbolMap::SaveNocashSym(const Path &filename) const {
 	std::lock_guard<std::recursive_mutex> guard(lock_);
 
 	// Don't bother writing a blank file.
@@ -1011,6 +1014,7 @@ void SymbolMap::GetLabels(std::vector<LabelDefinition> &dest) {
 		LabelDefinition entry;
 		entry.value = it->first;
 		entry.name = ConvertUTF8ToWString(it->second.name);
+		std::transform(entry.name.begin(), entry.name.end(), entry.name.begin(), ::towlower);
 		dest.push_back(entry);
 	}
 }

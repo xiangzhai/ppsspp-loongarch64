@@ -27,6 +27,8 @@
 #define new DBG_NEW
 #endif
 
+using namespace PPSSPP_VK;
+
 VulkanLogOptions g_LogOptions;
 
 static const char *validationLayers[] = {
@@ -112,6 +114,11 @@ VkResult VulkanContext::CreateInstance(const CreateInfo &info) {
 #if defined(VK_USE_PLATFORM_WAYLAND_KHR)
 	if (IsInstanceExtensionAvailable(VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME)) {
 		instance_extensions_enabled_.push_back(VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME);
+	}
+#endif
+#if defined(VK_USE_PLATFORM_DISPLAY_KHR)
+	if (IsInstanceExtensionAvailable(VK_KHR_DISPLAY_EXTENSION_NAME)) {
+		instance_extensions_enabled_.push_back(VK_KHR_DISPLAY_EXTENSION_NAME);
 	}
 #endif
 #if defined(VK_USE_PLATFORM_METAL_EXT)
@@ -565,33 +572,16 @@ void VulkanContext::ChooseDevice(int physical_device) {
 	}
 
 	deviceFeatures_.enabled = {};
-
 	// Enable a few safe ones if they are available.
-	if (deviceFeatures_.available.dualSrcBlend) {
-		deviceFeatures_.enabled.dualSrcBlend = true;
-	}
-	if (deviceFeatures_.available.largePoints) {
-		deviceFeatures_.enabled.largePoints = true;
-	}
-	if (deviceFeatures_.available.wideLines) {
-		deviceFeatures_.enabled.wideLines = true;
-	}
-	if (deviceFeatures_.available.logicOp) {
-		deviceFeatures_.enabled.logicOp = true;
-	}
-	if (deviceFeatures_.available.depthClamp) {
-		deviceFeatures_.enabled.depthClamp = true;
-	}
-	if (deviceFeatures_.available.depthBounds) {
-		deviceFeatures_.enabled.depthBounds = true;
-	}
-	if (deviceFeatures_.available.samplerAnisotropy) {
-		deviceFeatures_.enabled.samplerAnisotropy = true;
-	}
+	deviceFeatures_.enabled.dualSrcBlend = deviceFeatures_.available.dualSrcBlend;
+	deviceFeatures_.enabled.largePoints = deviceFeatures_.available.largePoints;
+	deviceFeatures_.enabled.wideLines = deviceFeatures_.available.wideLines;
+	deviceFeatures_.enabled.logicOp = deviceFeatures_.available.logicOp;
+	deviceFeatures_.enabled.depthClamp = deviceFeatures_.available.depthClamp;
+	deviceFeatures_.enabled.depthBounds = deviceFeatures_.available.depthBounds;
+	deviceFeatures_.enabled.samplerAnisotropy = deviceFeatures_.available.samplerAnisotropy;
 	// For easy wireframe mode, someday.
-	if (deviceFeatures_.available.fillModeNonSolid) {
-		deviceFeatures_.enabled.fillModeNonSolid = true;
-	}
+	deviceFeatures_.enabled.fillModeNonSolid = deviceFeatures_.available.fillModeNonSolid;
 
 	GetDeviceLayerExtensionList(nullptr, device_extension_properties_);
 
@@ -783,6 +773,15 @@ VkResult VulkanContext::ReinitSurface() {
 		wayland.display = (wl_display *)winsysData1_;
 		wayland.surface = (wl_surface *)winsysData2_;
 		retval = vkCreateWaylandSurfaceKHR(instance_, &wayland, nullptr, &surface_);
+		break;
+	}
+#endif
+#if defined(VK_USE_PLATFORM_DISPLAY_KHR)
+	case WINDOWSYSTEM_DISPLAY:
+	{
+		VkDisplaySurfaceCreateInfoKHR display{ VK_STRUCTURE_TYPE_DISPLAY_SURFACE_CREATE_INFO_KHR };
+		display.flags = 0;
+		retval = vkCreateDisplayPlaneSurfaceKHR(instance_, &display, nullptr, &surface_);
 		break;
 	}
 #endif

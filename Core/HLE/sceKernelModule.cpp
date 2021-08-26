@@ -15,7 +15,6 @@
 // Official git repository and contact information can be found at
 // https://github.com/hrydgard/ppsspp and http://www.ppsspp.org/.
 
-#include <fstream>
 #include <algorithm>
 #include <set>
 
@@ -887,8 +886,8 @@ static void __SaveDecryptedEbootToStorageMedia(const u8 *decryptedEbootDataPtr, 
 	}
 
 	const std::string filenameToDumpTo = g_paramSFO.GetDiscID() + ".BIN";
-	const std::string dumpDirectory = GetSysDirectory(DIRECTORY_DUMP);
-	const std::string fullPath = dumpDirectory + filenameToDumpTo;
+	const Path dumpDirectory = GetSysDirectory(DIRECTORY_DUMP);
+	const Path fullPath = dumpDirectory / filenameToDumpTo;
 
 	// If the file already exists, don't dump it again.
 	if (File::Exists(fullPath)) {

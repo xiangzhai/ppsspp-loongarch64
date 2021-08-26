@@ -23,14 +23,15 @@
 #include <mutex>
 #include <atomic>
 
+#include "Common/Thread/Event.h"
 #include "Core/ELF/ParamSFO.h"
+#include "Common/File/Path.h"
 #include "UI/TextureUtil.h"
 
 namespace Draw {
 	class DrawContext;
 	class Texture;
 }
-class PrioritizedWorkQueue;
 
 // A GameInfo holds information about a game, and also lets you do things that the VSH
 // does on the PSP, namely checking for and deleting savedata, and similar things.
@@ -84,7 +85,7 @@ public:
 
 	bool Delete();  // Better be sure what you're doing when calling this.
 	bool DeleteAllSaveData();
-	bool LoadFromPath(const std::string &gamePath);
+	bool LoadFromPath(const Path &gamePath);
 
 	std::shared_ptr<FileLoader> GetFileLoader();
 	void DisposeFileLoader();
@@ -95,7 +96,7 @@ public:
 
 	void ParseParamSFO();
 
-	std::vector<std::string> GetSaveDataDirectories();
+	std::vector<Path> GetSaveDataDirectories();
 
 	std::string GetTitle();
 	void SetTitle(const std::string &newTitle);
@@ -139,8 +140,11 @@ public:
 	u64 gameSize = 0;
 	u64 saveDataSize = 0;
 	u64 installDataSize = 0;
+
 	std::atomic<bool> pending{};
 	std::atomic<bool> working{};
+
+	Event readyEvent;
 
 protected:
 	// Note: this can change while loading, use GetTitle().
@@ -148,7 +152,7 @@ protected:
 
 	// TODO: Get rid of this shared_ptr and managae lifetime better instead.
 	std::shared_ptr<FileLoader> fileLoader;
-	std::string filePath_;
+	Path filePath_;
 
 private:
 	DISALLOW_COPY_AND_ASSIGN(GameInfo);
@@ -167,10 +171,8 @@ public:
 	// but filled in later asynchronously in the background. So keep calling this,
 	// redrawing the UI often. Only set flags to GAMEINFO_WANTBG or WANTSND if you really want them 
 	// because they're big. bgTextures and sound may be discarded over time as well.
-	std::shared_ptr<GameInfo> GetInfo(Draw::DrawContext *draw, const std::string &gamePath, int wantFlags);
+	std::shared_ptr<GameInfo> GetInfo(Draw::DrawContext *draw, const Path &gamePath, int wantFlags);
 	void FlushBGs();  // Gets rid of all BG textures. Also gets rid of bg sounds.
-
-	PrioritizedWorkQueue *WorkQueue() { return gameInfoWQ_; }
 
 	void CancelAll();
 	void WaitUntilDone(std::shared_ptr<GameInfo> &info);
@@ -183,9 +185,6 @@ private:
 	// Maps ISO path to info. Need to use shared_ptr as we can return these pointers - 
 	// and if they get destructed while being in use, that's bad.
 	std::map<std::string, std::shared_ptr<GameInfo> > info_;
-
-	// Work queue and management
-	PrioritizedWorkQueue *gameInfoWQ_;
 };
 
 // This one can be global, no good reason not to.

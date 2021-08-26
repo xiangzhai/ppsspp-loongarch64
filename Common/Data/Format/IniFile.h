@@ -9,8 +9,9 @@
 #include <string>
 #include <vector>
 
-class Section
-{
+#include "Common/File/Path.h"
+
+class Section {
 	friend class IniFile;
 
 public:
@@ -34,6 +35,7 @@ public:
 	bool Get(const char* key, std::string* value, const char* defaultValue);
 
 	void Set(const char* key, uint32_t newValue);
+	void Set(const char* key, uint64_t newValue);
 	void Set(const char* key, float newValue);
 	void Set(const char* key, const float newValue, const float defaultValue);
 	void Set(const char* key, double newValue);
@@ -57,6 +59,7 @@ public:
 
 	bool Get(const char* key, int* value, int defaultValue = 0);
 	bool Get(const char* key, uint32_t* value, uint32_t defaultValue = 0);
+	bool Get(const char* key, uint64_t* value, uint64_t defaultValue = 0);
 	bool Get(const char* key, bool* value, bool defaultValue = false);
 	bool Get(const char* key, float* value, float defaultValue = false);
 	bool Get(const char* key, double* value, double defaultValue = false);
@@ -76,16 +79,15 @@ protected:
 	std::string comment;
 };
 
-class IniFile
-{
+class IniFile {
 public:
-	bool Load(const char* filename);
-	bool Load(const std::string &filename) { return Load(filename.c_str()); }
+	bool Load(const Path &path);
+	bool Load(const std::string &filename) { return Load(Path(filename)); }
 	bool Load(std::istream &istream);
 	bool LoadFromVFS(const std::string &filename);
 
-	bool Save(const char* filename);
-	bool Save(const std::string &filename) { return Save(filename.c_str()); }
+	bool Save(const Path &path);
+	bool Save(const std::string &filename) { return Save(Path(filename)); }
 
 	// Returns true if key exists in section
 	bool Exists(const char* sectionName, const char* key) const;
@@ -103,6 +105,9 @@ public:
 	void Set(const char* sectionName, const char* key, uint32_t newValue) {
 		GetOrCreateSection(sectionName)->Set(key, newValue);
 	}
+	void Set(const char* sectionName, const char* key, uint64_t newValue) {
+		GetOrCreateSection(sectionName)->Set(key, newValue);
+	}
 	void Set(const char* sectionName, const char* key, bool newValue) {
 		GetOrCreateSection(sectionName)->Set(key, newValue);
 	}
@@ -114,6 +119,7 @@ public:
 	bool Get(const char* sectionName, const char* key, std::string* value, const char* defaultValue = "");
 	bool Get(const char* sectionName, const char* key, int* value, int defaultValue = 0);
 	bool Get(const char* sectionName, const char* key, uint32_t* value, uint32_t defaultValue = 0);
+	bool Get(const char* sectionName, const char* key, uint64_t* value, uint64_t defaultValue = 0);
 	bool Get(const char* sectionName, const char* key, bool* value, bool defaultValue = false);
 	bool Get(const char* sectionName, const char* key, std::vector<std::string>& values);
 

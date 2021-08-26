@@ -81,7 +81,6 @@ private:
 	ProductItemView *GetSelectedItem();
 	std::vector<StoreEntry> FilterEntries();
 
-	std::string GetStoreJsonURL(std::string storePath) const;
 	std::string GetTranslatedString(const json::JsonGet json, std::string key, const char *fallback = nullptr) const;
 
 	std::shared_ptr<http::Download> listing_;
@@ -93,6 +92,7 @@ private:
 
 	bool loading_ = true;
 	bool connectionError_ = false;
+	int resultCode_ = 0;
 
 	std::map<std::string, StoreCategory> categories_;
 

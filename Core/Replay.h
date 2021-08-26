@@ -21,6 +21,8 @@
 #include <string>
 #include <vector>
 
+#include "Common/File/Path.h"
+
 // Be careful about changing these values (used in file data.)
 enum class ReplayAction : uint8_t {
 	BUTTONS = 0x00,
@@ -47,23 +49,29 @@ enum class ReplayAction : uint8_t {
 struct PSPFileInfo;
 
 // Replay from data in memory.  Does not manipulate base time / RNG state.
-void ReplayExecuteBlob(const std::vector<u8> &data);
+bool ReplayExecuteBlob(int version, const std::vector<uint8_t> &data);
 // Replay from data in a file.  Returns false if invalid.
-bool ReplayExecuteFile(const std::string &filename);
-// Returns whether there are unexected events to replay.
+bool ReplayExecuteFile(const Path &filename);
+// Returns whether there are unexecuted events to replay.
 bool ReplayHasMoreEvents();
 
 // Begin recording.  If currently executing, discards unexecuted events.
 void ReplayBeginSave();
 // Flush buffered events to memory.  Continues recording (next call will receive new events only.)
 // No header is flushed with this operation - don't mix with ReplayFlushFile().
-void ReplayFlushBlob(std::vector<u8> *data);
+void ReplayFlushBlob(std::vector<uint8_t> *data);
 // Flush buffered events to file.  Continues recording (next call will receive new events only.)
 // Do not call with a different filename before ReplayAbort().
-bool ReplayFlushFile(const std::string &filename);
+bool ReplayFlushFile(const Path &filename);
+// Get current replay data version.
+int ReplayVersion();
 
 // Abort any execute or record operation in progress.
 void ReplayAbort();
+
+// Check if replay data is being executed or saved.
+bool ReplayIsExecuting();
+bool ReplayIsSaving();
 
 void ReplayApplyCtrl(uint32_t &buttons, uint8_t analog[2][2], uint64_t t);
 uint32_t ReplayApplyDisk(ReplayAction action, uint32_t result, uint64_t t);

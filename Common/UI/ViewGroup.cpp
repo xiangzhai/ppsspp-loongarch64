@@ -57,6 +57,14 @@ void ViewGroup::RemoveSubview(View *view) {
 	}
 }
 
+bool ViewGroup::ContainsSubview(const View *view) const {
+	for (const View *subview : views_) {
+		if (subview == view || subview->ContainsSubview(view))
+			return true;
+	}
+	return false;
+}
+
 void ViewGroup::Clear() {
 	std::lock_guard<std::mutex> guard(modifyLock_);
 	for (size_t i = 0; i < views_.size(); i++) {
@@ -245,6 +253,7 @@ bool ViewGroup::SubviewFocused(View *view) {
 	return false;
 }
 
+// Returns the percentage the smaller one overlaps the bigger one.
 static float HorizontalOverlap(const Bounds &a, const Bounds &b) {
 	if (a.x2() < b.x || b.x2() < a.x)
 		return 0.0f;
@@ -272,7 +281,7 @@ static float VerticalOverlap(const Bounds &a, const Bounds &b) {
 		return std::min(1.0f, overlap / std::min(a.h, b.h));
 }
 
-float GetDirectionScore(View *origin, View *destination, FocusDirection direction) {
+float GetTargetScore(const Point &originPos, int originIndex, View *origin, View *destination, FocusDirection direction) {
 	// Skip labels and things like that.
 	if (!destination->CanBeFocused())
 		return 0.0f;
@@ -281,7 +290,6 @@ float GetDirectionScore(View *origin, View *destination, FocusDirection directio
 	if (destination->GetVisibility() != V_VISIBLE)
 		return 0.0f;
 
-	Point originPos = origin->GetFocusPosition(direction);
 	Point destPos = destination->GetFocusPosition(Opposite(direction));
 
 	float dx = destPos.x - originPos.x;
@@ -297,8 +305,10 @@ float GetDirectionScore(View *origin, View *destination, FocusDirection directio
 	float horizOverlap = HorizontalOverlap(origin->GetBounds(), destination->GetBounds());
 	float vertOverlap = VerticalOverlap(origin->GetBounds(), destination->GetBounds());
 	if (horizOverlap == 1.0f && vertOverlap == 1.0f) {
-		INFO_LOG(SYSTEM, "Contain overlap");
-		return 0.0;
+		if (direction != FOCUS_PREV_PAGE && direction != FOCUS_NEXT_PAGE) {
+			INFO_LOG(SYSTEM, "Contain overlap");
+			return 0.0;
+		}
 	}
 	float originSize = 0.0f;
 	switch (direction) {
@@ -332,35 +342,45 @@ float GetDirectionScore(View *origin, View *destination, FocusDirection directio
 		}
 		vertical = true;
 		break;
+	case FOCUS_FIRST:
+		if (originIndex == -1)
+			return 0.0f;
+		if (dirX > 0.0f || dirY > 0.0f)
+			return 0.0f;
+		// More distance is good.
+		return distance;
+	case FOCUS_LAST:
+		if (originIndex == -1)
+			return 0.0f;
+		if (dirX < 0.0f || dirY < 0.0f)
+			return 0.0f;
+		// More distance is good.
+		return distance;
+	case FOCUS_PREV_PAGE:
+	case FOCUS_NEXT_PAGE:
+		// Not always, but let's go with the bonus on height.
+		vertical = true;
+		break;
 	case FOCUS_PREV:
 	case FOCUS_NEXT:
 		ERROR_LOG(SYSTEM, "Invalid focus direction");
 		break;
 	}
 
-	// Add a small bonus if the views are the same size. This prioritizes moving to the next item
-	// upwards in a scroll view instead of moving up to the top bar.
-	float distanceBonus = 0.0f;
-	if (vertical) {
-		float widthDifference = origin->GetBounds().w - destination->GetBounds().w;
-		if (widthDifference == 0) {
-			distanceBonus = 40;
-		}
-	} else {
-		float heightDifference = origin->GetBounds().h - destination->GetBounds().h;
-		if (heightDifference == 0) {
-			distanceBonus = 40;
-		}
-	}
-
 	// At large distances, ignore overlap.
-	if (distance > 2 * originSize)
-		overlap = 0;
+	if (distance > 2.0 * originSize)
+		overlap = 0.0f;
 
-	if (wrongDirection)
+	if (wrongDirection) {
 		return 0.0f;
-	else
-		return 10.0f / std::max(1.0f, distance - distanceBonus) + overlap;
+	} else {
+		return 10.0f / std::max(1.0f, distance) + overlap * 2.0;
+	}
+}
+
+float GetDirectionScore(int originIndex, View *origin, View *destination, FocusDirection direction) {
+	Point originPos = origin->GetFocusPosition(direction);
+	return GetTargetScore(originPos, originIndex, origin, destination, direction);
 }
 
 NeighborResult ViewGroup::FindNeighbor(View *view, FocusDirection direction, NeighborResult result) {
@@ -378,33 +398,38 @@ NeighborResult ViewGroup::FindNeighbor(View *view, FocusDirection direction, Nei
 		}
 	}
 
-	// TODO: Do the cardinal directions right. Now we just map to
-	// prev/next.
+	if (direction == FOCUS_PREV || direction == FOCUS_NEXT) {
+		switch (direction) {
+		case FOCUS_PREV:
+			// If view not found, no neighbor to find.
+			if (num == -1)
+				return NeighborResult(0, 0.0f);
+			return NeighborResult(views_[(num + views_.size() - 1) % views_.size()], 0.0f);
+
+		case FOCUS_NEXT:
+			// If view not found, no neighbor to find.
+			if (num == -1)
+				return NeighborResult(0, 0.0f);
+			return NeighborResult(views_[(num + 1) % views_.size()], 0.0f);
+		default:
+			return NeighborResult(nullptr, 0.0f);
+		}
+	}
 
 	switch (direction) {
-	case FOCUS_PREV:
-		// If view not found, no neighbor to find.
-		if (num == -1)
-			return NeighborResult(0, 0.0f);
-		return NeighborResult(views_[(num + views_.size() - 1) % views_.size()], 0.0f);
-
-	case FOCUS_NEXT:
-		// If view not found, no neighbor to find.
-		if (num == -1)
-			return NeighborResult(0, 0.0f);
-		return NeighborResult(views_[(num + 1) % views_.size()], 0.0f);
-
 	case FOCUS_UP:
 	case FOCUS_LEFT:
 	case FOCUS_RIGHT:
 	case FOCUS_DOWN:
+	case FOCUS_FIRST:
+	case FOCUS_LAST:
 		{
 			// First, try the child views themselves as candidates
 			for (size_t i = 0; i < views_.size(); i++) {
 				if (views_[i] == view)
 					continue;
 
-				float score = GetDirectionScore(view, views_[i], direction);
+				float score = GetDirectionScore(num, view, views_[i], direction);
 				if (score > result.score) {
 					result.score = score;
 					result.view = views_[i];
@@ -424,13 +449,42 @@ NeighborResult ViewGroup::FindNeighbor(View *view, FocusDirection direction, Nei
 			if (num != -1) {
 				//result.score += 100.0f;
 			}
-
 			return result;
 		}
+
+	case FOCUS_PREV_PAGE:
+	case FOCUS_NEXT_PAGE:
+		return FindScrollNeighbor(view, Point(INFINITY, INFINITY), direction, result);
 
 	default:
 		return result;
 	}
+}
+
+NeighborResult ViewGroup::FindScrollNeighbor(View *view, const Point &target, FocusDirection direction, NeighborResult best) {
+	if (!IsEnabled())
+		return best;
+	if (GetVisibility() != V_VISIBLE)
+		return best;
+
+	if (target.x < INFINITY && target.y < INFINITY) {
+		for (auto v : views_) {
+			// Note: we consider the origin itself, which might already be the best option.
+			float score = GetTargetScore(target, -1, view, v, direction);
+			if (score > best.score) {
+				best.score = score;
+				best.view = v;
+			}
+		}
+	}
+	for (auto v : views_) {
+		if (v->IsViewGroup()) {
+			ViewGroup *vg = static_cast<ViewGroup *>(v);
+			if (vg)
+				best = vg->FindScrollNeighbor(view, target, direction, best);
+		}
+	}
+	return best;
 }
 
 // TODO: This code needs some cleanup/restructuring...
@@ -776,19 +830,6 @@ bool ScrollView::Key(const KeyInput &input) {
 		case NKCODE_EXT_MOUSEWHEEL_DOWN:
 			ScrollRelative(250);
 			break;
-		case NKCODE_PAGE_DOWN:
-			ScrollRelative((orientation_ == ORIENT_VERTICAL ? bounds_.h : bounds_.w) - 50);
-			break;
-		case NKCODE_PAGE_UP:
-			ScrollRelative(-(orientation_ == ORIENT_VERTICAL ? bounds_.h : bounds_.w) + 50);
-			break;
-		case NKCODE_MOVE_HOME:
-			ScrollTo(0);
-			break;
-		case NKCODE_MOVE_END:
-			if (views_.size())
-				ScrollTo(orientation_ == ORIENT_VERTICAL ? views_[0]->GetBounds().h : views_[0]->GetBounds().w);
-			break;
 		}
 	}
 	return ViewGroup::Key(input);
@@ -892,6 +933,51 @@ bool ScrollView::SubviewFocused(View *view) {
 	}
 
 	return true;
+}
+
+NeighborResult ScrollView::FindScrollNeighbor(View *view, const Point &target, FocusDirection direction, NeighborResult best) {
+	if (ContainsSubview(view) && views_[0]->IsViewGroup()) {
+		ViewGroup *vg = static_cast<ViewGroup *>(views_[0]);
+		int found = -1;
+		for (int i = 0, n = vg->GetNumSubviews(); i < n; ++i) {
+			View *child = vg->GetViewByIndex(i);
+			if (child == view || child->ContainsSubview(view)) {
+				found = i;
+				break;
+			}
+		}
+
+		// Okay, the previously focused view is inside this.
+		if (found != -1) {
+			float mult = 0.0f;
+			switch (direction) {
+			case FOCUS_PREV_PAGE:
+				mult = -1.0f;
+				break;
+			case FOCUS_NEXT_PAGE:
+				mult = 1.0f;
+				break;
+			default:
+				break;
+			}
+
+			// Okay, now where is our ideal target?
+			Point targetPos = view->GetBounds().Center();
+			if (orientation_ == ORIENT_VERTICAL)
+				targetPos.y += mult * bounds_.h;
+			else
+				targetPos.x += mult * bounds_.x;
+
+			// Okay, which subview is closest to that?
+			best = vg->FindScrollNeighbor(view, targetPos, direction, best);
+			// Avoid reselecting the same view.
+			if (best.view == view)
+				best.view = nullptr;
+			return best;
+		}
+	}
+
+	return ViewGroup::FindScrollNeighbor(view, target, direction, best);
 }
 
 void ScrollView::PersistData(PersistStatus status, std::string anonId, PersistMap &storage) {

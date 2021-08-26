@@ -72,6 +72,7 @@ GPU_Vulkan::GPU_Vulkan(GraphicsContext *gfxCtx, Draw::DrawContext *draw)
 	drawEngine_.SetFramebufferManager(framebufferManagerVulkan_);
 	drawEngine_.SetShaderManager(shaderManagerVulkan_);
 	drawEngine_.SetPipelineManager(pipelineManager_);
+	drawEngine_.Init();
 	framebufferManagerVulkan_->SetVulkan2D(&vulkan2D_);
 	framebufferManagerVulkan_->SetTextureCache(textureCacheVulkan_);
 	framebufferManagerVulkan_->SetDrawEngine(&drawEngine_);
@@ -103,7 +104,7 @@ GPU_Vulkan::GPU_Vulkan(GraphicsContext *gfxCtx, Draw::DrawContext *draw)
 	std::string discID = g_paramSFO.GetDiscID();
 	if (discID.size()) {
 		File::CreateFullPath(GetSysDirectory(DIRECTORY_APP_CACHE));
-		shaderCachePath_ = GetSysDirectory(DIRECTORY_APP_CACHE) + "/" + discID + ".vkshadercache";
+		shaderCachePath_ = GetSysDirectory(DIRECTORY_APP_CACHE) / (discID + ".vkshadercache");
 		shaderCacheLoaded_ = false;
 
 		std::thread th([&] {
@@ -124,7 +125,7 @@ void GPU_Vulkan::CancelReady() {
 	pipelineManager_->CancelCache();
 }
 
-void GPU_Vulkan::LoadCache(std::string filename) {
+void GPU_Vulkan::LoadCache(const Path &filename) {
 	PSP_SetLoading("Loading shader cache...");
 	// Actually precompiled by IsReady() since we're single-threaded.
 	FILE *f = File::OpenCFile(filename, "rb");
@@ -149,7 +150,7 @@ void GPU_Vulkan::LoadCache(std::string filename) {
 	}
 }
 
-void GPU_Vulkan::SaveCache(std::string filename) {
+void GPU_Vulkan::SaveCache(const Path &filename) {
 	if (!draw_) {
 		// Already got the lost message, we're in shutdown.
 		WARN_LOG(G3D, "Not saving shaders - shutting down from in-game.");
@@ -219,7 +220,7 @@ void GPU_Vulkan::CheckGPUFeatures() {
 	}
 
 	// Might enable this later - in the first round we are mostly looking at depth/stencil/discard.
-	// if (g_Config.bDisableVendorBugChecks)
+	// if (!g_Config.bEnableVendorBugChecks)
 	// 	features |= GPU_SUPPORTS_ACCURATE_DEPTH;
 
 	// Mandatory features on Vulkan, which may be checked in "centralized" code
@@ -255,9 +256,14 @@ void GPU_Vulkan::CheckGPUFeatures() {
 		features |= GPU_SUPPORTS_ANISOTROPY;
 	}
 
+	// These are VULKAN_4444_FORMAT and friends.
 	uint32_t fmt4444 = draw_->GetDataFormatSupport(Draw::DataFormat::B4G4R4A4_UNORM_PACK16);
 	uint32_t fmt1555 = draw_->GetDataFormatSupport(Draw::DataFormat::A1R5G5B5_UNORM_PACK16);
-	uint32_t fmt565 = draw_->GetDataFormatSupport(Draw::DataFormat::R5G6B5_UNORM_PACK16);
+
+	// Note that we are (accidentally) using B5G6R5 instead of the mandatory R5G6B5.
+	// Support is almost as widespread, but not quite. So let's just not use any 16-bit formats
+	// if it's not available, for simplicity.
+	uint32_t fmt565 = draw_->GetDataFormatSupport(Draw::DataFormat::B5G6R5_UNORM_PACK16);
 	if ((fmt4444 & Draw::FMT_TEXTURE) && (fmt565 & Draw::FMT_TEXTURE) && (fmt1555 & Draw::FMT_TEXTURE)) {
 		features |= GPU_SUPPORTS_16BIT_FORMATS;
 	} else {
@@ -523,7 +529,7 @@ void GPU_Vulkan::DeviceLost() {
 	while (!IsReady()) {
 		sleep_ms(10);
 	}
-	if (!shaderCachePath_.empty()) {
+	if (shaderCachePath_.Valid()) {
 		SaveCache(shaderCachePath_);
 	}
 	DestroyDeviceObjects();

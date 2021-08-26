@@ -22,7 +22,9 @@
 #include <vector>
 
 #include "ppsspp_config.h"
+
 #include "Common/CommonTypes.h"
+#include "Common/File/Path.h"
 #include "Core/ConfigValues.h"
 
 extern const char *PPSSPP_GIT_VERSION;
@@ -53,6 +55,13 @@ struct ConfigTouchPos {
 	bool show;
 };
 
+struct ConfigCustomButton {
+	uint64_t key;
+	int image;
+	int shape;
+	bool toggle;
+};
+
 struct Config {
 public:
 	Config();
@@ -70,7 +79,6 @@ public:
 	bool bBrowse; // when opening the emulator, immediately show a file browser
 
 	// General
-	int iNumWorkerThreads;
 	bool bScreenshotsAsPNG;
 	bool bUseFFV1;
 	bool bDumpFrames;
@@ -165,7 +173,7 @@ public:
 	bool bVSync;
 	int iFrameSkip;
 	int iFrameSkipType;
-	int iUnthrottleMode; // See UnthrottleMode in ConfigValues.h.
+	int iFastForwardMode; // See FastForwardMode in ConfigValues.h.
 	bool bAutoFrameSkip;
 
 	bool bEnableCardboardVR; // Cardboard Master Switch
@@ -201,6 +209,9 @@ public:
 	int iRewindFlipFrequency;
 	bool bUISound;
 	bool bEnableStateUndo;
+	std::string sStateLoadUndoGame;
+	std::string sStateUndoLastSaveGame;
+	int iStateUndoLastSaveSlot;
 	int iAutoLoadSaveState; // 0 = off, 1 = oldest, 2 = newest, >2 = slot number + 3
 	bool bEnableCheats;
 	bool bReloadCheats;
@@ -227,6 +238,7 @@ public:
 	bool bEnableSound;
 	int iAudioBackend;
 	int iGlobalVolume;
+	int iReverbVolume;
 	int iAltSpeedVolume;
 	bool bExtraAudioBuffering;  // For bluetooth
 	std::string sAudioDevice;
@@ -280,6 +292,7 @@ public:
 	//the base x and y tilt. this inclination is treated as (0,0) and the tilt input
 	//considers this orientation to be equal to no movement of the analog stick.
 	float fTiltBaseX, fTiltBaseY;
+	int iTiltOrientation;
 	//whether the x axes and y axes should invert directions (left becomes right, top becomes bottom.)
 	bool bInvertTiltX, bInvertTiltY;
 	//the sensitivity of the tilt in the x direction
@@ -298,8 +311,6 @@ public:
 	bool bGridView1;
 	bool bGridView2;
 	bool bGridView3;
-	//Combo key screen flag
-	int iComboMode;
 
 	// Right analog binding
 	int iRightAnalogUp;
@@ -308,6 +319,7 @@ public:
 	int iRightAnalogRight;
 	int iRightAnalogPress;
 	bool bRightAnalogCustom;
+	bool bRightAnalogDisableDiagonal;
 
 	// Disable diagonals
 	bool bDisableDpadDiagonals;
@@ -337,7 +349,7 @@ public:
 	float fDpadSpacing;
 	ConfigTouchPos touchStartKey;
 	ConfigTouchPos touchSelectKey;
-	ConfigTouchPos touchUnthrottleKey;
+	ConfigTouchPos touchFastForwardKey;
 	ConfigTouchPos touchLKey;
 	ConfigTouchPos touchRKey;
 	ConfigTouchPos touchAnalogStick;
@@ -348,11 +360,11 @@ public:
 	ConfigTouchPos touchCombo2;
 	ConfigTouchPos touchCombo3;
 	ConfigTouchPos touchCombo4;
-	ConfigTouchPos touchSpeed1Key;
-	ConfigTouchPos touchSpeed2Key;
-	ConfigTouchPos touchRapidFireKey;
-	ConfigTouchPos touchAnalogRotationCWKey;
-	ConfigTouchPos touchAnalogRotationCCWKey;
+	ConfigTouchPos touchCombo5;
+	ConfigTouchPos touchCombo6;
+	ConfigTouchPos touchCombo7;
+	ConfigTouchPos touchCombo8;
+	ConfigTouchPos touchCombo9;
 
 	// Controls Visibility
 	bool bShowTouchControls;
@@ -362,34 +374,29 @@ public:
 	bool bShowTouchTriangle;
 	bool bShowTouchSquare;
 
-	// Combo_key mapping. These are bitfields.
-	int iCombokey0;
-	int iCombokey1;
-	int iCombokey2;
-	int iCombokey3;
-	int iCombokey4;
-
-	bool bComboToggle0;
-	bool bComboToggle1;
-	bool bComboToggle2;
-	bool bComboToggle3;
-	bool bComboToggle4;
+	ConfigCustomButton CustomKey0;
+	ConfigCustomButton CustomKey1;
+	ConfigCustomButton CustomKey2;
+	ConfigCustomButton CustomKey3;
+	ConfigCustomButton CustomKey4;
+	ConfigCustomButton CustomKey5;
+	ConfigCustomButton CustomKey6;
+	ConfigCustomButton CustomKey7;
+	ConfigCustomButton CustomKey8;
+	ConfigCustomButton CustomKey9;	
 
 	// Ignored on iOS and other platforms that lack pause.
 	bool bShowTouchPause;
 
 	bool bHapticFeedback;
 
-	float fDInputAnalogDeadzone;
-	int iDInputAnalogInverseMode;
-	float fDInputAnalogInverseDeadzone;
-	float fDInputAnalogSensitivity;
-
 	// We also use the XInput settings as analog settings on other platforms like Android.
-	float fXInputAnalogDeadzone;
-	int iXInputAnalogInverseMode;
-	float fXInputAnalogInverseDeadzone;
-	float fXInputAnalogSensitivity;
+	float fAnalogDeadzone;
+	float fAnalogInverseDeadzone;
+	float fAnalogSensitivity;
+	// convert analog stick circle to square
+	bool bAnalogIsCircular;
+
 
 	float fAnalogLimiterDeadzone;
 
@@ -475,12 +482,13 @@ public:
 	bool bShowFrameProfiler;
 
 	// Various directories. Autoconfigured, not read from ini.
-	std::string currentDirectory;
-	std::string externalDirectory;
-	std::string memStickDirectory;
-	std::string flash0Directory;
-	std::string internalDataDirectory;
-	std::string appCacheDirectory;
+	Path currentDirectory;  // The directory selected in the game browsing window.
+	Path defaultCurrentDirectory;  // Platform dependent, initialized at startup.
+
+	Path memStickDirectory;
+	Path flash0Directory;
+	Path internalDataDirectory;
+	Path appCacheDirectory;
 
 	// Data for upgrade prompt
 	std::string upgradeMessage;  // The actual message from the server is currently not used, need a translation mechanism. So this just acts as a flag.
@@ -488,7 +496,7 @@ public:
 	std::string dismissedVersion;
 
 	void Load(const char *iniFileName = nullptr, const char *controllerIniFilename = nullptr);
-	void Save(const char *saveReason);
+	bool Save(const char *saveReason);
 	void Reload();
 	void RestoreDefaults();
 
@@ -499,14 +507,13 @@ public:
 	bool loadGameConfig(const std::string &game_id, const std::string &title);
 	bool saveGameConfig(const std::string &pGameId, const std::string &title);
 	void unloadGameConfig();
-	std::string getGameConfigFile(const std::string &gameId);
+	Path getGameConfigFile(const std::string &gameId);
 	bool hasGameConfig(const std::string &game_id);
 
-	// Used when the file is not found in the search path.  Trailing slash.
-	void SetDefaultPath(const std::string &defaultPath);
-	// Use a trailing slash.
-	void AddSearchPath(const std::string &path);
-	const std::string FindConfigFile(const std::string &baseFilename);
+	void SetSearchPath(const Path &path);
+	const Path FindConfigFile(const std::string &baseFilename);
+
+	void UpdateIniLocation(const char *iniFileName = nullptr, const char *controllerIniFilename = nullptr);
 
 	// Utility functions for "recent" management
 	void AddRecent(const std::string &file);
@@ -531,11 +538,9 @@ private:
 	bool reload_ = false;
 	std::string gameId_;
 	std::string gameIdTitle_;
-	std::string iniFilename_;
-	std::string controllerIniFilename_;
-	std::vector<std::string> searchPath_;
-	std::string defaultPath_;
-	std::string createdPath_;
+	Path iniFilename_;
+	Path controllerIniFilename_;
+	Path searchPath_;
 };
 
 std::map<std::string, std::pair<std::string, int>> GetLangValuesMapping();

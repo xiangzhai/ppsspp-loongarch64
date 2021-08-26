@@ -15,25 +15,6 @@
 // Official git repository and contact information can be found at
 // https://github.com/hrydgard/ppsspp and http://www.ppsspp.org/.
 
-#include "GPU/D3D11/GPU_D3D11.h"
-
-// Copyright (c) 2012- PPSSPP Project.
-
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, version 2.0 or later versions.
-
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License 2.0 for more details.
-
-// A copy of the GPL 2.0 should have been included with the program.
-// If not, see http://www.gnu.org/licenses/
-
-// Official git repository and contact information can be found at
-// https://github.com/hrydgard/ppsspp and http://www.ppsspp.org/.
-
 #include <set>
 
 #include "Common/Log.h"
@@ -87,6 +68,7 @@ GPU_D3D11::GPU_D3D11(GraphicsContext *gfxCtx, Draw::DrawContext *draw)
 	drawEngine_.SetShaderManager(shaderManagerD3D11_);
 	drawEngine_.SetTextureCache(textureCacheD3D11_);
 	drawEngine_.SetFramebufferManager(framebufferManagerD3D11_);
+	drawEngine_.Init();
 	framebufferManagerD3D11_->SetTextureCache(textureCacheD3D11_);
 	framebufferManagerD3D11_->SetShaderManager(shaderManagerD3D11_);
 	framebufferManagerD3D11_->SetDrawEngine(&drawEngine_);
@@ -260,10 +242,11 @@ void GPU_D3D11::SetDisplayFramebuffer(u32 framebuf, u32 stride, GEBufferFormat f
 }
 
 void GPU_D3D11::CopyDisplayToOutput(bool reallyDirty) {
+	// Flush anything left over.
+	drawEngine_.Flush();
+
 	float blendColor[4]{};
 	context_->OMSetBlendState(stockD3D11.blendStateDisabledWithColorMask[0xF], blendColor, 0xFFFFFFFF);
-
-	drawEngine_.Flush();
 
 	framebufferManagerD3D11_->CopyDisplayToOutput(reallyDirty);
 	framebufferManagerD3D11_->EndFrame();

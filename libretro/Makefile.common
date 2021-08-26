@@ -37,60 +37,130 @@ INCFLAGS += \
 ifeq ($(PLATFORM_EXT), android)
 	INCFLAGS += -I$(EXTDIR)/libzip
 	SOURCES_C += \
-		$(EXTDIR)/libzip/mkstemp.c \
 		$(EXTDIR)/libzip/zip_add.c \
 		$(EXTDIR)/libzip/zip_add_dir.c \
+		$(EXTDIR)/libzip/zip_add_entry.c \
+		$(EXTDIR)/libzip/zip_algorithm_deflate.c \
+		$(EXTDIR)/libzip/zip_buffer.c \
 		$(EXTDIR)/libzip/zip_close.c \
 		$(EXTDIR)/libzip/zip_delete.c \
+		$(EXTDIR)/libzip/zip_dir_add.c \
 		$(EXTDIR)/libzip/zip_dirent.c \
-		$(EXTDIR)/libzip/zip_entry_free.c \
-		$(EXTDIR)/libzip/zip_entry_new.c \
-		$(EXTDIR)/libzip/zip_err_str.c \
+		$(EXTDIR)/libzip/zip_discard.c \
+		$(EXTDIR)/libzip/zip_entry.c \
 		$(EXTDIR)/libzip/zip_error.c \
 		$(EXTDIR)/libzip/zip_error_clear.c \
 		$(EXTDIR)/libzip/zip_error_get.c \
 		$(EXTDIR)/libzip/zip_error_get_sys_type.c \
 		$(EXTDIR)/libzip/zip_error_strerror.c \
 		$(EXTDIR)/libzip/zip_error_to_str.c \
+		$(EXTDIR)/libzip/zip_extra_field.c \
+		$(EXTDIR)/libzip/zip_extra_field_api.c \
 		$(EXTDIR)/libzip/zip_fclose.c \
+		$(EXTDIR)/libzip/zip_fdopen.c \
+		$(EXTDIR)/libzip/zip_file_add.c \
 		$(EXTDIR)/libzip/zip_file_error_clear.c \
 		$(EXTDIR)/libzip/zip_file_error_get.c \
+		$(EXTDIR)/libzip/zip_file_get_comment.c \
+		$(EXTDIR)/libzip/zip_file_get_external_attributes.c \
 		$(EXTDIR)/libzip/zip_file_get_offset.c \
+		$(EXTDIR)/libzip/zip_file_rename.c \
+		$(EXTDIR)/libzip/zip_file_replace.c \
+		$(EXTDIR)/libzip/zip_file_set_comment.c \
+		$(EXTDIR)/libzip/zip_file_set_encryption.c \
+		$(EXTDIR)/libzip/zip_file_set_external_attributes.c \
+		$(EXTDIR)/libzip/zip_file_set_mtime.c \
 		$(EXTDIR)/libzip/zip_file_strerror.c \
-		$(EXTDIR)/libzip/zip_filerange_crc.c \
 		$(EXTDIR)/libzip/zip_fopen.c \
+		$(EXTDIR)/libzip/zip_fopen_encrypted.c \
 		$(EXTDIR)/libzip/zip_fopen_index.c \
+		$(EXTDIR)/libzip/zip_fopen_index_encrypted.c \
 		$(EXTDIR)/libzip/zip_fread.c \
-		$(EXTDIR)/libzip/zip_free.c \
+		$(EXTDIR)/libzip/zip_fseek.c \
+		$(EXTDIR)/libzip/zip_ftell.c \
 		$(EXTDIR)/libzip/zip_get_archive_comment.c \
 		$(EXTDIR)/libzip/zip_get_archive_flag.c \
+		$(EXTDIR)/libzip/zip_get_encryption_implementation.c \
 		$(EXTDIR)/libzip/zip_get_file_comment.c \
 		$(EXTDIR)/libzip/zip_get_name.c \
+		$(EXTDIR)/libzip/zip_get_num_entries.c \
 		$(EXTDIR)/libzip/zip_get_num_files.c \
+		$(EXTDIR)/libzip/zip_hash.c \
+		$(EXTDIR)/libzip/zip_io_util.c \
+		$(EXTDIR)/libzip/zip_libzip_version.c \
 		$(EXTDIR)/libzip/zip_memdup.c \
 		$(EXTDIR)/libzip/zip_name_locate.c \
 		$(EXTDIR)/libzip/zip_new.c \
 		$(EXTDIR)/libzip/zip_open.c \
+		$(EXTDIR)/libzip/zip_pkware.c \
+		$(EXTDIR)/libzip/zip_progress.c \
 		$(EXTDIR)/libzip/zip_rename.c \
 		$(EXTDIR)/libzip/zip_replace.c \
 		$(EXTDIR)/libzip/zip_set_archive_comment.c \
 		$(EXTDIR)/libzip/zip_set_archive_flag.c \
+		$(EXTDIR)/libzip/zip_set_default_password.c \
 		$(EXTDIR)/libzip/zip_set_file_comment.c \
+		$(EXTDIR)/libzip/zip_set_file_compression.c \
 		$(EXTDIR)/libzip/zip_set_name.c \
+		$(EXTDIR)/libzip/zip_source_accept_empty.c \
+		$(EXTDIR)/libzip/zip_source_begin_write.c \
+		$(EXTDIR)/libzip/zip_source_begin_write_cloning.c \
 		$(EXTDIR)/libzip/zip_source_buffer.c \
-		$(EXTDIR)/libzip/zip_source_file.c \
-		$(EXTDIR)/libzip/zip_source_filep.c \
+		$(EXTDIR)/libzip/zip_source_call.c \
+		$(EXTDIR)/libzip/zip_source_close.c \
+		$(EXTDIR)/libzip/zip_source_commit_write.c \
+		$(EXTDIR)/libzip/zip_source_compress.c \
+		$(EXTDIR)/libzip/zip_source_crc.c \
+		$(EXTDIR)/libzip/zip_source_error.c \
+		$(EXTDIR)/libzip/zip_source_file_common.c \
+		$(EXTDIR)/libzip/zip_source_file_stdio.c \
 		$(EXTDIR)/libzip/zip_source_free.c \
 		$(EXTDIR)/libzip/zip_source_function.c \
+		$(EXTDIR)/libzip/zip_source_get_file_attributes.c \
+		$(EXTDIR)/libzip/zip_source_is_deleted.c \
+		$(EXTDIR)/libzip/zip_source_layered.c \
+		$(EXTDIR)/libzip/zip_source_open.c \
+		$(EXTDIR)/libzip/zip_source_pkware_decode.c \
+		$(EXTDIR)/libzip/zip_source_pkware_encode.c \
+		$(EXTDIR)/libzip/zip_source_read.c \
+		$(EXTDIR)/libzip/zip_source_remove.c \
+		$(EXTDIR)/libzip/zip_source_rollback_write.c \
+		$(EXTDIR)/libzip/zip_source_seek.c \
+		$(EXTDIR)/libzip/zip_source_seek_write.c \
+		$(EXTDIR)/libzip/zip_source_stat.c \
+		$(EXTDIR)/libzip/zip_source_supports.c \
+		$(EXTDIR)/libzip/zip_source_tell.c \
+		$(EXTDIR)/libzip/zip_source_tell_write.c \
+		$(EXTDIR)/libzip/zip_source_window.c \
+		$(EXTDIR)/libzip/zip_source_write.c \
 		$(EXTDIR)/libzip/zip_source_zip.c \
+		$(EXTDIR)/libzip/zip_source_zip_new.c \
 		$(EXTDIR)/libzip/zip_stat.c \
 		$(EXTDIR)/libzip/zip_stat_index.c \
 		$(EXTDIR)/libzip/zip_stat_init.c \
 		$(EXTDIR)/libzip/zip_strerror.c \
+		$(EXTDIR)/libzip/zip_string.c \
 		$(EXTDIR)/libzip/zip_unchange.c \
 		$(EXTDIR)/libzip/zip_unchange_all.c \
 		$(EXTDIR)/libzip/zip_unchange_archive.c \
-		$(EXTDIR)/libzip/zip_unchange_data.c
+		$(EXTDIR)/libzip/zip_unchange_data.c \
+		$(EXTDIR)/libzip/zip_utf-8.c \
+		$(EXTDIR)/libzip/zip_err_str.c
+
+	ifeq ($(PLATFORM_EXT), win32)
+		SOURCES_C += \
+			$(EXTDIR)/libzip/zip_source_file_win32.c \
+			$(EXTDIR)/libzip/zip_source_file_win32_named.c \
+			$(EXTDIR)/libzip/zip_source_file_win32_utf16.c \
+			$(EXTDIR)/libzip/zip_source_file_win32_utf8.c \
+			$(EXTDIR)/libzip/zip_source_file_win32_ansi.c \
+			$(EXTDIR)/libzip/zip_random_win32.c
+	else
+		SOURCES_C += \
+			$(EXTDIR)/libzip/zip_mkstempm.c \
+			$(EXTDIR)/libzip/zip_source_file_stdio_named.c \
+			$(EXTDIR)/libzip/zip_random_unix.c
+	endif
 
 	SOURCES_C +=\
 		$(COMMONDIR)/Math/fast/fast_math.c \
@@ -163,7 +233,9 @@ SOURCES_CXX += \
 	$(COMMONDIR)/Data/Text/WrapText.cpp \
 	$(COMMONDIR)/File/VFS/VFS.cpp \
 	$(COMMONDIR)/File/VFS/AssetReader.cpp \
+	$(COMMONDIR)/File/AndroidStorage.cpp \
 	$(COMMONDIR)/File/DiskFree.cpp \
+	$(COMMONDIR)/File/Path.cpp \
 	$(COMMONDIR)/File/PathBrowser.cpp \
 	$(COMMONDIR)/File/FileUtil.cpp \
 	$(COMMONDIR)/File/FileDescriptor.cpp \
@@ -197,6 +269,7 @@ SOURCES_CXX += \
 	$(COMMONDIR)/Net/HTTPClient.cpp \
 	$(COMMONDIR)/Net/HTTPHeaders.cpp \
 	$(COMMONDIR)/Net/HTTPServer.cpp \
+	$(COMMONDIR)/Net/NetBuffer.cpp \
 	$(COMMONDIR)/Net/Resolve.cpp \
 	$(COMMONDIR)/Net/Sinks.cpp \
 	$(COMMONDIR)/Net/URL.cpp \
@@ -204,10 +277,9 @@ SOURCES_CXX += \
 	$(COMMONDIR)/Render/DrawBuffer.cpp \
 	$(COMMONDIR)/Render/TextureAtlas.cpp \
 	$(COMMONDIR)/Serialize/Serializer.cpp \
-	$(COMMONDIR)/Thread/Executor.cpp \
 	$(COMMONDIR)/Thread/ThreadUtil.cpp \
-	$(COMMONDIR)/Thread/ThreadPool.cpp \
-	$(COMMONDIR)/Thread/PrioritizedWorkQueue.cpp \
+	$(COMMONDIR)/Thread/ParallelLoop.cpp \
+	$(COMMONDIR)/Thread/ThreadManager.cpp \
 	$(COMMONDIR)/UI/Root.cpp \
 	$(COMMONDIR)/UI/Screen.cpp \
 	$(COMMONDIR)/UI/UI.cpp \
@@ -228,6 +300,8 @@ SOURCES_CXX += \
 	$(COMMONDIR)/OSVersion.cpp \
 	$(COMMONDIR)/MemoryUtil.cpp \
 	$(COMMONDIR)/MipsCPUDetect.cpp \
+	$(COMMONDIR)/RiscVCPUDetect.cpp \
+	$(COMMONDIR)/LogReporting.cpp \
 	$(COMMONDIR)/SysError.cpp \
 	$(COMMONDIR)/StringUtils.cpp \
 	$(COMMONDIR)/TimeUtil.cpp
@@ -252,7 +326,7 @@ SOURCES_CXX += \
 	$(GPUCOMMONDIR)/IndexGenerator.cpp \
 	$(GPUCOMMONDIR)/TextureDecoder.cpp \
 	$(GPUCOMMONDIR)/PostShader.cpp \
-	$(COMMONDIR)/ColorConv.cpp \
+	$(COMMONDIR)/Data/Convert/ColorConv.cpp \
 	$(GPUDIR)/Debugger/Breakpoints.cpp \
 	$(GPUDIR)/Debugger/Debugger.cpp \
 	$(GPUDIR)/Debugger/Playback.cpp \
@@ -354,6 +428,7 @@ SOURCES_CXX += \
 	       $(EXTDIR)/jpge/jpge.cpp \
 	       $(COREDIR)/AVIDump.cpp \
 	       $(COREDIR)/Config.cpp \
+	       $(COREDIR)/ControlMapper.cpp \
 	       $(COREDIR)/TextureReplacer.cpp \
 	       $(COREDIR)/Core.cpp \
 	       $(COREDIR)/WaveFile.cpp \
@@ -510,7 +585,7 @@ SOURCES_CXX += \
 	       $(COREDIR)/SaveState.cpp \
 	       $(COREDIR)/Screenshot.cpp \
 	       $(COREDIR)/System.cpp \
-		   $(COREDIR)/ThreadPools.cpp \
+	       $(COREDIR)/ThreadPools.cpp \
 	       $(COREDIR)/Util/BlockAllocator.cpp \
 	       $(COREDIR)/Util/PPGeDraw.cpp \
 	       $(COREDIR)/Util/AudioFormat.cpp \
@@ -544,7 +619,7 @@ ifeq ($(WITH_DYNAREC),1)
 					 $(COREDIR)/MIPS/ARM/ArmCompVFPUNEON.cpp \
 					 $(COREDIR)/MIPS/ARM/ArmCompVFPUNEONUtil.cpp \
 					 $(COREDIR)/Util/AudioFormatNEON.cpp \
-					 $(COMMONDIR)/ColorConvNEON.cpp \
+					 $(COMMONDIR)/Data/Convert/ColorConvNEON.cpp \
 					 $(GPUDIR)/Common/TextureDecoderNEON.cpp
 
 			SOURCES_C += $(EXTDIR)/libpng17/arm/arm_init.c \
@@ -573,7 +648,7 @@ ifeq ($(WITH_DYNAREC),1)
 					 $(COREDIR)/MIPS/ARM/ArmCompVFPUNEON.cpp \
 					 $(COREDIR)/MIPS/ARM/ArmCompVFPUNEONUtil.cpp \
 					 $(COREDIR)/Util/AudioFormatNEON.cpp \
-					 $(COMMONDIR)/ColorConvNEON.cpp \
+					 $(COMMONDIR)/Data/Convert/ColorConvNEON.cpp \
 					 $(GPUDIR)/Common/TextureDecoderNEON.cpp
 
 			SOURCES_C += $(EXTDIR)/libpng17/arm/arm_init.c \
@@ -715,7 +790,6 @@ SOURCES_C +=   $(ZSTDDIR)/common/debug.c \
 
 SOURCES_C +=   \
                $(ZSTDDIR)/common/zstd_common.c \
-               $(ZSTDDIR)/common/zstd_trace.c \
                $(ZSTDDIR)/compress/fse_compress.c \
                $(ZSTDDIR)/compress/hist.c \
                $(ZSTDDIR)/compress/huf_compress.c \

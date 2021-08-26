@@ -31,16 +31,29 @@
 #include <algorithm>
 #include <functional>
 
-#include <stdio.h>
-#include <stdlib.h>
+#include <cstdio>
+#include <cstdlib>
+#include <thread>
 
 #include "Common/Net/HTTPServer.h"
+#include "Common/Net/NetBuffer.h"
 #include "Common/Net/Sinks.h"
 #include "Common/File/FileDescriptor.h"
-#include "Common/Thread/Executor.h"
 
 #include "Common/Buffer.h"
 #include "Common/Log.h"
+
+
+void NewThreadExecutor::Run(std::function<void()> func) {
+	threads_.push_back(std::thread(func));
+}
+
+NewThreadExecutor::~NewThreadExecutor() {
+	// If Run was ever called...
+	for (auto &thread : threads_)
+		thread.join();
+	threads_.clear();
+}
 
 namespace http {
 
@@ -48,7 +61,7 @@ namespace http {
 const char *const DEFAULT_MIME_TYPE = "text/html; charset=utf-8";
 
 Request::Request(int fd)
-    : fd_(fd) {
+	: fd_(fd) {
 	in_ = new net::InputSink(fd);
 	out_ = new net::OutputSink(fd);
 	header_.ParseHeaders(in_);
@@ -63,7 +76,9 @@ Request::Request(int fd)
 Request::~Request() {
 	Close();
 
-	_assert_(in_->Empty());
+	if (!in_->Empty()) {
+		ERROR_LOG(IO, "Input not empty - invalid request?");
+	}
 	delete in_;
 	if (!out_->Empty()) {
 		ERROR_LOG(IO, "Output not empty - connection abort?");
@@ -109,27 +124,27 @@ void Request::WriteHttpResponseHeader(const char *ver, int status, int64_t size,
 }
 
 void Request::WritePartial() const {
-  _assert_(fd_);
-  out_->Flush();
+	_assert_(fd_);
+	out_->Flush();
 }
 
 void Request::Write() {
-  _assert_(fd_);
-  WritePartial();
-  Close();
+	_assert_(fd_);
+	WritePartial();
+	Close();
 }
 
 void Request::Close() {
-  if (fd_) {
-    closesocket(fd_);
-    fd_ = 0;
-  }
+	if (fd_) {
+		closesocket(fd_);
+		fd_ = 0;
+	}
 }
 
-Server::Server(threading::Executor *executor)
-  : port_(0), executor_(executor) {
-  RegisterHandler("/", std::bind(&Server::HandleListing, this, std::placeholders::_1));
-  SetFallbackHandler(std::bind(&Server::Handle404, this, std::placeholders::_1));
+Server::Server(NewThreadExecutor *executor)
+	: port_(0), executor_(executor) {
+	RegisterHandler("/", std::bind(&Server::HandleListing, this, std::placeholders::_1));
+	SetFallbackHandler(std::bind(&Server::Handle404, this, std::placeholders::_1));
 }
 
 Server::~Server() {
@@ -137,7 +152,7 @@ Server::~Server() {
 }
 
 void Server::RegisterHandler(const char *url_path, UrlHandlerFunc handler) {
-  handlers_[std::string(url_path)] = handler;
+	handlers_[std::string(url_path)] = handler;
 }
 
 void Server::SetFallbackHandler(UrlHandlerFunc handler) {
@@ -302,18 +317,18 @@ void Server::Stop() {
 }
 
 void Server::HandleConnection(int conn_fd) {
-  Request request(conn_fd);
-  if (!request.IsOK()) {
-    WARN_LOG(IO, "Bad request, ignoring.");
-    return;
-  }
-  HandleRequest(request);
+	Request request(conn_fd);
+	if (!request.IsOK()) {
+		WARN_LOG(IO, "Bad request, ignoring.");
+		return;
+	}
+	HandleRequest(request);
 
-  // TODO: Way to mark the content body as read, read it here if never read.
-  // This allows the handler to stream if need be.
+	// TODO: Way to mark the content body as read, read it here if never read.
+	// This allows the handler to stream if need be.
 
-  // TODO: Could handle keep alive here.
-  request.Write();
+	// TODO: Could handle keep alive here.
+	request.Write();
 }
 
 void Server::HandleRequest(const Request &request) {
@@ -321,6 +336,10 @@ void Server::HandleRequest(const Request &request) {
 }
 
 void Server::HandleRequestDefault(const Request &request) {
+	if (request.resource() == nullptr) {
+		fallback_(request);
+		return;
+	}
 	// First, look through all handlers. If we got one, use it.
 	auto handler = handlers_.find(request.resource());
 	if (handler != handlers_.end()) {

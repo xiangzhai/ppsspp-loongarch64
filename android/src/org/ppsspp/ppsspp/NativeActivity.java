@@ -27,6 +27,7 @@ import android.os.PowerManager;
 import android.os.Vibrator;
 import android.provider.DocumentsContract;
 import android.provider.MediaStore;
+import androidx.documentfile.provider.DocumentFile;
 import android.text.InputType;
 import android.util.Log;
 import android.view.Gravity;
@@ -102,15 +103,12 @@ public abstract class NativeActivity extends Activity {
 	private boolean shuttingDown;
 
 	private static final int RESULT_LOAD_IMAGE = 1;
-	private static final int RESULT_BROWSE_FILE = 2;
+	private static final int RESULT_OPEN_DOCUMENT = 2;
 	private static final int RESULT_OPEN_DOCUMENT_TREE = 3;
 
 	// Allow for multiple connected gamepads but just consider them the same for now.
 	// Actually this is not entirely true, see the code.
-	private InputDeviceState inputPlayerA;
-	private InputDeviceState inputPlayerB;
-	private InputDeviceState inputPlayerC;
-	private String inputPlayerADesc;
+	private ArrayList<InputDeviceState> inputPlayers = new ArrayList<InputDeviceState>();
 
 	private PowerSaveModeReceiver mPowerSaveModeReceiver = null;
 	private SizeManager sizeManager = null;
@@ -911,42 +909,24 @@ public abstract class NativeActivity extends Activity {
 		}
 	}
 
-	// We simply grab the first input device to produce an event and ignore all others that are connected.
 	@TargetApi(Build.VERSION_CODES.GINGERBREAD)
 	private InputDeviceState getInputDeviceState(InputEvent event) {
 		InputDevice device = event.getDevice();
 		if (device == null) {
 			return null;
 		}
-		if (inputPlayerA == null) {
-			inputPlayerADesc = getInputDesc(device);
-			Log.i(TAG, "Input player A registered: desc = " + inputPlayerADesc);
-			inputPlayerA = new InputDeviceState(device);
+
+		for (InputDeviceState input : inputPlayers) {
+			if (input.getDevice() == device) {
+				return input;
+			}
 		}
 
-		if (inputPlayerA.getDevice() == device) {
-			return inputPlayerA;
-		}
-
-		if (inputPlayerB == null) {
-			Log.i(TAG, "Input player B registered: desc = " + getInputDesc(device));
-			inputPlayerB = new InputDeviceState(device);
-		}
-
-		if (inputPlayerB.getDevice() == device) {
-			return inputPlayerB;
-		}
-
-		if (inputPlayerC == null) {
-			Log.i(TAG, "Input player C registered");
-			inputPlayerC = new InputDeviceState(device);
-		}
-
-		if (inputPlayerC.getDevice() == device) {
-			return inputPlayerC;
-		}
-
-		return inputPlayerA;
+		// None was found, just add and return it.
+		InputDeviceState state = new InputDeviceState(device);
+		inputPlayers.add(state);
+		Log.i(TAG, "Input player registered: desc = " + getInputDesc(device));
+		return state;
 	}
 
 	public boolean IsXperiaPlay() {
@@ -966,23 +946,28 @@ public abstract class NativeActivity extends Activity {
 			// Let's let back and menu through to dispatchKeyEvent.
 			boolean passThrough = false;
 
+			int sources = event.getSource();
+
+			// Is this really only for the Xperia Play special handling in OnKeyDown?
+			// And if so, can we just handle it here instead?
 			switch (event.getKeyCode()) {
 			case KeyEvent.KEYCODE_BACK:
-			case KeyEvent.KEYCODE_MENU:
 				passThrough = true;
 				break;
 			default:
 				break;
 			}
 
-			// Don't passthrough back button if gamepad.
-			int sources = event.getSource();
-			switch (sources) {
-			case InputDevice.SOURCE_GAMEPAD:
-			case InputDevice.SOURCE_JOYSTICK:
-			case InputDevice.SOURCE_DPAD:
+			// Don't passthrough back button if from gamepad.
+			// XInput device on Android returns source 1281 or 0x501, which equals GAMEPAD | KEYBOARD.
+			// Shield Remote returns 769 or 0x301 which equals DPAD | KEYBOARD.
+
+			// Don't disable passthrough if app at top level.
+			if (((sources & InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD ||
+					(sources & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK ||
+					(sources & InputDevice.SOURCE_DPAD) == InputDevice.SOURCE_DPAD))
+			{
 				passThrough = false;
-				break;
 			}
 
 			if (!passThrough) {
@@ -1057,18 +1042,18 @@ public abstract class NativeActivity extends Activity {
 		switch (keyCode) {
 		case KeyEvent.KEYCODE_BACK:
 			if (event.isAltPressed()) {
-				NativeApp.keyDown(0, 1004, repeat); // special custom keycode for the O button on Xperia Play
+				NativeApp.keyDown(InputDeviceState.deviceId, 1004, repeat); // special custom keycode for the O button on Xperia Play
 			} else if (NativeApp.isAtTopLevel()) {
 				Log.i(TAG, "IsAtTopLevel returned true.");
 				// Pass through the back event.
 				return super.onKeyDown(keyCode, event);
 			} else {
-				NativeApp.keyDown(0, keyCode, repeat);
+				NativeApp.keyDown(InputDeviceState.deviceId, keyCode, repeat);
 			}
 			return true;
 		case KeyEvent.KEYCODE_MENU:
 		case KeyEvent.KEYCODE_SEARCH:
-			NativeApp.keyDown(0, keyCode, repeat);
+			NativeApp.keyDown(InputDeviceState.deviceId, keyCode, repeat);
 			return true;
 
 		case KeyEvent.KEYCODE_DPAD_UP:
@@ -1077,6 +1062,7 @@ public abstract class NativeActivity extends Activity {
 		case KeyEvent.KEYCODE_DPAD_RIGHT:
 			// Joysticks are supported in Honeycomb MR1 and later via the onGenericMotionEvent method.
 			if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB_MR1 && event.getSource() == InputDevice.SOURCE_JOYSTICK) {
+				// Pass through / ignore
 				return super.onKeyDown(keyCode, event);
 			}
 			// Fall through
@@ -1084,7 +1070,7 @@ public abstract class NativeActivity extends Activity {
 			// send the rest of the keys through.
 			// TODO: get rid of the three special cases above by adjusting the native side of the code.
 			// Log.d(TAG, "Key down: " + keyCode + ", KeyEvent: " + event);
-			return NativeApp.keyDown(0, keyCode, repeat);
+			return NativeApp.keyDown(InputDeviceState.deviceId, keyCode, repeat);
 		}
 	}
 
@@ -1141,7 +1127,7 @@ public abstract class NativeActivity extends Activity {
 				cursor.close();
 				NativeApp.sendMessage("bgImage_updated", picturePath);
 			}
-		} else if (requestCode == RESULT_BROWSE_FILE) {
+		} else if (requestCode == RESULT_OPEN_DOCUMENT) {
 			Uri selectedFile = data.getData();
 			if (selectedFile != null) {
 				// Grab permanent permission so we can show it in recents list etc.
@@ -1152,12 +1138,21 @@ public abstract class NativeActivity extends Activity {
 				NativeApp.sendMessage("browse_fileSelect", selectedFile.toString());
 			}
 		} else if (requestCode == RESULT_OPEN_DOCUMENT_TREE) {
-			Uri selectedFile = data.getData();
-			if (selectedFile != null) {
-				// Convert URI to normal path. (This might not be possible in Android 12+)
-				String path = selectedFile.toString();
+			Uri selectedDirectoryUri = data.getData();
+			if (selectedDirectoryUri != null) {
+				String path = selectedDirectoryUri.toString();
 				Log.i(TAG, "Browse folder finished: " + path);
-				NativeApp.sendMessage("browse_folderSelect", path);
+				getContentResolver().takePersistableUriPermission(selectedDirectoryUri, Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+				DocumentFile documentFile = DocumentFile.fromTreeUri(this, selectedDirectoryUri);
+				Log.i(TAG, "Document name: " + documentFile.getUri());
+				/*
+				// Old debug log
+				DocumentFile[] children = documentFile.listFiles();
+				for (DocumentFile child : children) {
+					Log.i(TAG, "Child: " + child.getUri() + " " + child.getName());
+				}
+				*/
+				NativeApp.sendMessage("browse_folderSelect", documentFile.getUri().toString());
 			}
 		}
 	}
@@ -1296,8 +1291,11 @@ public abstract class NativeActivity extends Activity {
 				intent.addCategory(Intent.CATEGORY_OPENABLE);
 				intent.setType("*/*");
 				intent.addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
-				//intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI, pickerInitialUri);
-				startActivityForResult(intent, RESULT_BROWSE_FILE);
+				// Possible alternative approach:
+				// String[] mimeTypes = {"application/octet-stream", "/x-iso9660-image"};
+				// intent.putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes);
+				startActivityForResult(intent, RESULT_OPEN_DOCUMENT);
+				// intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI, pickerInitialUri);
 			} catch (Exception e) {
 				Log.e(TAG, e.toString());
 				return false;
@@ -1305,9 +1303,9 @@ public abstract class NativeActivity extends Activity {
 		} else if (command.equals("browse_folder")) {
 			try {
 				Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
-				intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+				intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
 				intent.addFlags(Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
-				intent.addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);  // not yet used properly
+				intent.addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
 				intent.putExtra(Intent.EXTRA_LOCAL_ONLY, true);  // Only allow local folders.
 				startActivityForResult(intent, RESULT_OPEN_DOCUMENT_TREE);
 				return true;

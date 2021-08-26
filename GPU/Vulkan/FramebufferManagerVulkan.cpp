@@ -21,6 +21,7 @@
 
 #include "Common/System/Display.h"
 #include "Common/Math/lin/matrix4x4.h"
+#include "Common/Data/Convert/ColorConv.h"
 #include "Common/Data/Convert/SmallDataConvert.h"
 #include "Common/GPU/thin3d.h"
 
@@ -28,7 +29,6 @@
 #include "Common/GPU/Vulkan/VulkanMemory.h"
 #include "Common/GPU/Vulkan/VulkanImage.h"
 #include "Common/GPU/Vulkan/VulkanRenderManager.h"
-#include "Common/ColorConv.h"
 #include "Core/MemMap.h"
 #include "Core/Config.h"
 #include "Core/ConfigValues.h"
@@ -47,6 +47,8 @@
 #include "GPU/Vulkan/TextureCacheVulkan.h"
 #include "GPU/Vulkan/ShaderManagerVulkan.h"
 #include "GPU/Vulkan/VulkanUtil.h"
+
+using namespace PPSSPP_VK;
 
 static const char tex_fs[] = R"(#version 450
 #extension GL_ARB_separate_shader_objects : enable

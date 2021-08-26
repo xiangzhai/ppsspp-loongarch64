@@ -188,18 +188,14 @@ void __CtrlButtonUp(u32 buttonBit)
 	ctrlCurrent.buttons &= ~buttonBit;
 }
 
-void __CtrlSetAnalogX(float x, int stick)
+void __CtrlSetAnalogXY(int stick, float x, float y)
 {
-	u8 scaled = clamp_u8((int)ceilf(x * 127.5f + 127.5f));
+	u8 scaledX = clamp_u8((int)ceilf(x * 127.5f + 127.5f));
+	// TODO: We might have too many negations of Y...
+	u8 scaledY = clamp_u8((int)ceilf(-y * 127.5f + 127.5f));
 	std::lock_guard<std::mutex> guard(ctrlMutex);
-	ctrlCurrent.analog[stick][CTRL_ANALOG_X] = scaled;
-}
-
-void __CtrlSetAnalogY(float y, int stick)
-{
-	u8 scaled = clamp_u8((int)ceilf(-y * 127.5f + 127.5f));
-	std::lock_guard<std::mutex> guard(ctrlMutex);
-	ctrlCurrent.analog[stick][CTRL_ANALOG_Y] = scaled;
+	ctrlCurrent.analog[stick][CTRL_ANALOG_X] = scaledX;
+	ctrlCurrent.analog[stick][CTRL_ANALOG_Y] = scaledY;
 }
 
 void __CtrlSetRapidFire(bool state)
@@ -505,7 +501,8 @@ static int sceCtrlReadBufferNegative(u32 ctrlDataPtr, u32 nBufs)
 static int sceCtrlPeekBufferPositive(u32 ctrlDataPtr, u32 nBufs)
 {
 	int done = __CtrlReadBuffer(ctrlDataPtr, nBufs, false, true);
-	DEBUG_LOG(SCECTRL, "%d=sceCtrlPeekBufferPositive(%08x, %i)", done, ctrlDataPtr, nBufs);
+	// Some homebrew call this in a tight loop - so VERBOSE it is.
+	VERBOSE_LOG(SCECTRL, "%d=sceCtrlPeekBufferPositive(%08x, %i)", done, ctrlDataPtr, nBufs);
 	hleEatCycles(330);
 	return done;
 }
@@ -513,7 +510,8 @@ static int sceCtrlPeekBufferPositive(u32 ctrlDataPtr, u32 nBufs)
 static int sceCtrlPeekBufferNegative(u32 ctrlDataPtr, u32 nBufs)
 {
 	int done = __CtrlReadBuffer(ctrlDataPtr, nBufs, true, true);
-	DEBUG_LOG(SCECTRL, "%d=sceCtrlPeekBufferNegative(%08x, %i)", done, ctrlDataPtr, nBufs);
+	// Some homebrew call this in a tight loop - so VERBOSE it is.
+	VERBOSE_LOG(SCECTRL, "%d=sceCtrlPeekBufferNegative(%08x, %i)", done, ctrlDataPtr, nBufs);
 	hleEatCycles(330);
 	return done;
 }

@@ -8,9 +8,9 @@
 #endif
 #include "Common/System/Display.h"
 
+#include "Common/Data/Convert/ColorConv.h"
 #include "Common/Data/Convert/SmallDataConvert.h"
 #include "Common/Data/Encoding/Utf8.h"
-#include "Common/ColorConv.h"
 #include "Common/Log.h"
 
 #include <cfloat>
@@ -25,6 +25,8 @@
 #endif
 
 namespace Draw {
+
+static constexpr int MAX_BOUND_TEXTURES = 8;
 
 // A problem is that we can't get the D3Dcompiler.dll without using a later SDK than 7.1, which was the last that
 // supported XP. A possible solution might be here:
@@ -85,7 +87,7 @@ public:
 
 	void BindTextures(int start, int count, Texture **textures) override;
 	void BindSamplerStates(int start, int count, SamplerState **states) override;
-	void BindVertexBuffers(int start, int count, Buffer **buffers, int *offsets) override;
+	void BindVertexBuffers(int start, int count, Buffer **buffers, const int *offsets) override;
 	void BindIndexBuffer(Buffer *indexBuffer, int offset) override;
 	void BindPipeline(Pipeline *pipeline) override;
 
@@ -1161,7 +1163,8 @@ void D3D11DrawContext::UpdateBuffer(Buffer *buffer, const uint8_t *data, size_t 
 	context_->UpdateSubresource(buf->buf, 0, &box, data, 0, 0);
 }
 
-void D3D11DrawContext::BindVertexBuffers(int start, int count, Buffer **buffers, int *offsets) {
+void D3D11DrawContext::BindVertexBuffers(int start, int count, Buffer **buffers, const int *offsets) {
+	_assert_(start + count <= ARRAY_SIZE(nextVertexBuffers_));
 	// Lazy application
 	for (int i = 0; i < count; i++) {
 		D3D11Buffer *buf = (D3D11Buffer *)buffers[i];
@@ -1328,7 +1331,8 @@ Framebuffer *D3D11DrawContext::CreateFramebuffer(const FramebufferDesc &desc) {
 
 void D3D11DrawContext::BindTextures(int start, int count, Texture **textures) {
 	// Collect the resource views from the textures.
-	ID3D11ShaderResourceView *views[8];
+	ID3D11ShaderResourceView *views[MAX_BOUND_TEXTURES];
+	_assert_(start + count <= ARRAY_SIZE(views));
 	for (int i = 0; i < count; i++) {
 		D3D11Texture *tex = (D3D11Texture *)textures[i];
 		views[i] = tex ? tex->view : nullptr;
@@ -1337,7 +1341,8 @@ void D3D11DrawContext::BindTextures(int start, int count, Texture **textures) {
 }
 
 void D3D11DrawContext::BindSamplerStates(int start, int count, SamplerState **states) {
-	ID3D11SamplerState *samplers[8];
+	ID3D11SamplerState *samplers[MAX_BOUND_TEXTURES];
+	_assert_(start + count <= ARRAY_SIZE(samplers));
 	for (int i = 0; i < count; i++) {
 		D3D11SamplerState *samp = (D3D11SamplerState *)states[i];
 		samplers[i] = samp->ss;
@@ -1613,6 +1618,7 @@ void D3D11DrawContext::BindFramebufferAsRenderTarget(Framebuffer *fbo, const Ren
 }
 
 void D3D11DrawContext::BindFramebufferAsTexture(Framebuffer *fbo, int binding, FBChannel channelBit, int attachment) {
+	_assert_(binding < MAX_BOUND_TEXTURES);
 	D3D11Framebuffer *fb = (D3D11Framebuffer *)fbo;
 	switch (channelBit) {
 	case FBChannel::FB_COLOR_BIT:

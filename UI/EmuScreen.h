@@ -17,15 +17,17 @@
 
 #pragma once
 
+#include <list>
 #include <string>
 #include <vector>
-#include <list>
 
+#include "Common/File/Path.h"
 #include "Common/Input/KeyCodes.h"
 #include "Common/UI/Screen.h"
 #include "Common/UI/UIScreen.h"
 #include "Common/UI/Tween.h"
 #include "Core/KeyMap.h"
+#include "Core/ControlMapper.h"
 
 struct AxisInput;
 
@@ -34,7 +36,7 @@ class OnScreenMessagesView;
 
 class EmuScreen : public UIScreen {
 public:
-	EmuScreen(const std::string &filename);
+	EmuScreen(const Path &filename);
 	~EmuScreen();
 
 	void update() override;
@@ -55,50 +57,41 @@ private:
 	UI::EventReturn OnDisableCardboard(UI::EventParams &params);
 	UI::EventReturn OnChat(UI::EventParams &params);
 	UI::EventReturn OnResume(UI::EventParams &params);
+	UI::EventReturn OnReset(UI::EventParams &params);
 
-	void bootGame(const std::string &filename);
-	bool bootAllowStorage(const std::string &filename);
+	void bootGame(const Path &filename);
+	bool bootAllowStorage(const Path &filename);
 	void bootComplete();
 	bool hasVisibleUI();
 	void renderUI();
-	void processAxis(const AxisInput &axis, int direction);
 
-	void pspKey(int pspKeyCode, int flags);
 	void onVKeyDown(int virtualKeyCode);
 	void onVKeyUp(int virtualKeyCode);
-	void setVKeyAnalogX(int stick, int virtualKeyMin, int virtualKeyMax);
-	void setVKeyAnalogY(int stick, int virtualKeyMin, int virtualKeyMax);
 
 	void autoLoad();
 	void checkPowerDown();
 
 	UI::Event OnDevMenu;
 	UI::Event OnChatMenu;
-	bool bootPending_;
-	std::string gamePath_;
+	bool bootPending_ = true;
+	Path gamePath_;
 
 	// Something invalid was loaded, don't try to emulate
-	bool invalid_;
-	bool quit_;
+	bool invalid_ = true;
+	bool quit_ = false;
 	bool stopRender_ = false;
 	std::string errorMessage_;
 
 	// If set, pauses at the end of the frame.
-	bool pauseTrigger_;
-
-	// To track mappable virtual keys. We can have as many as we want.
-	bool virtKeys[VIRTKEY_COUNT];
+	bool pauseTrigger_ = false;
 
 	// In-memory save state used for freezeFrame, which is useful for debugging.
 	std::vector<u8> freezeState_;
 
 	std::string tag_;
 
-	// De-noise mapped axis updates
-	int axisState_[JOYSTICK_AXIS_MAX];
-
-	double saveStatePreviewShownTime_;
-	AsyncImageFileView *saveStatePreview_;
+	double saveStatePreviewShownTime_ = 0.0;
+	AsyncImageFileView *saveStatePreview_ = nullptr;
 	int saveStateSlot_;
 
 	UI::CallbackColorTween *loadingViewColor_ = nullptr;
@@ -106,11 +99,11 @@ private:
 	UI::Spinner *loadingSpinner_ = nullptr;
 	UI::TextView *loadingTextView_ = nullptr;
 	UI::Button *resumeButton_ = nullptr;
+	UI::Button *resetButton_ = nullptr;
 	UI::View *chatButton_ = nullptr;
 
 	UI::Button *cardboardDisableButton_ = nullptr;
 	OnScreenMessagesView *onScreenMessagesView_ = nullptr;
 
-	bool autoRotatingAnalogCW_ = false;
-	bool autoRotatingAnalogCCW_ = false;
+	ControlMapper controlMapper_;
 };

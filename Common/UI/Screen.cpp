@@ -106,6 +106,17 @@ bool ScreenManager::key(const KeyInput &key) {
 
 bool ScreenManager::axis(const AxisInput &axis) {
 	std::lock_guard<std::recursive_mutex> guard(inputLock_);
+
+	// Ignore duplicate values to prevent axis values overwriting each other.
+	uint64_t key = ((uint64_t)axis.axisId << 32) | axis.deviceId;
+	// Center value far from zero just to ensure we send the first zero.
+	// PSP games can't see higher resolution than this.
+	int value = 128 + ceilf(axis.value * 127.5f + 127.5f);
+	if (lastAxis_[key] == value) {
+		return false;
+	}
+	lastAxis_[key] = value;
+
 	bool result = false;
 	// Send center axis to every screen layer.
 	if (axis.value == 0) {
@@ -152,6 +163,8 @@ void ScreenManager::render() {
 				iter--;
 				Layer backback = *iter;
 
+				_assert_(backback.screen);
+
 				// TODO: Make really sure that this "mismatched" pre/post only happens
 				// when screens are "compatible" (both are UIScreens, for example).
 				backback.screen->preRender();
@@ -163,6 +176,7 @@ void ScreenManager::render() {
 				break;
 			}
 		default:
+			_assert_(stack_.back().screen);
 			stack_.back().screen->preRender();
 			stack_.back().screen->render();
 			if (postRenderCb_)

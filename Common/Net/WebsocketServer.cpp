@@ -47,12 +47,12 @@ static const size_t OUT_PRESSURE = 65536;
 static inline std::string TrimString(const std::string &s) {
 	auto wsfront = std::find_if_not(s.begin(), s.end(), [](int c) {
 		// isspace() expects 0 - 255, so convert any sign-extended value.
-	   return std::isspace(c & 0xFF);
-   });
-   auto wsback = std::find_if_not(s.rbegin(), s.rend(), [](int c){
-	   return std::isspace(c & 0xFF);
-   }).base();
-   return wsback > wsfront ? std::string(wsfront, wsback) : std::string();
+		return std::isspace(c & 0xFF);
+	});
+	auto wsback = std::find_if_not(s.rbegin(), s.rend(), [](int c){
+		return std::isspace(c & 0xFF);
+	}).base();
+	return wsback > wsfront ? std::string(wsfront, wsback) : std::string();
 }
 
 static bool ListContainsNoCase(const std::string &list, const std::string value) {
@@ -341,8 +341,8 @@ bool WebSocketServer::ReadFrame() {
 
 		mask = &header[10];
 		// Read from big endian.
-		uint64_t high = (header[2] << 24) | (header[3] << 16) || (header[4] << 8) | (header[5] << 0);
-		uint64_t low = (header[6] << 24) | (header[7] << 16) || (header[8] << 8) | (header[9] << 0);
+		uint64_t high = (header[2] << 24) | (header[3] << 16) | (header[4] << 8) | (header[5] << 0);
+		uint64_t low = (header[6] << 24) | (header[7] << 16) | (header[8] << 8) | (header[9] << 0);
 		sz = (high << 32) | low;
 
 		if ((sz & 0x8000000000000000ULL) != 0) {

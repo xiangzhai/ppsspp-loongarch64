@@ -208,12 +208,12 @@ void SavedataParam::Init()
 		pspFileSystem.MkDir(savePath);
 	}
 	// Create a nomedia file to hide save icons form Android image viewer
-#ifdef __ANDROID__
+#if PPSSPP_PLATFORM(ANDROID)
 	int handle = pspFileSystem.OpenFile(savePath + ".nomedia", (FileAccess)(FILEACCESS_CREATE | FILEACCESS_WRITE), 0);
 	if (handle >= 0) {
 		pspFileSystem.CloseFile(handle);
 	} else {
-		ERROR_LOG(IO, "Failed to create .nomedia file");
+		INFO_LOG(IO, "Failed to create .nomedia file (might be ok if it already exists)");
 	}
 #endif
 }
@@ -1045,11 +1045,11 @@ int SavedataParam::BuildHash(unsigned char *output,
 	return 0;
 }
 
+// TODO: Merge with NiceSizeFormat? That one has a decimal though.
 std::string SavedataParam::GetSpaceText(u64 size, bool roundUp)
 {
-	static const char *suffixes[] = {"B", "KB", "MB", "GB"};
 	char text[50];
-
+	static const char *suffixes[] = {"B", "KB", "MB", "GB"};
 	for (size_t i = 0; i < ARRAY_SIZE(suffixes); ++i)
 	{
 		if (size < 1024)
@@ -1063,7 +1063,6 @@ std::string SavedataParam::GetSpaceText(u64 size, bool roundUp)
 			size /= 1024;
 		}
 	}
-
 	snprintf(text, sizeof(text), "%llu TB", size);
 	return std::string(text);
 }
@@ -1193,7 +1192,7 @@ bool SavedataParam::GetList(SceUtilitySavedataParam *param)
 		for (size_t i = 0; i < validDir.size(); ++i) {
 			// GetFileName(param) == NUll here
 			// so use sfo files to set the date.
-			sfoFile = pspFileSystem.GetFileInfo(savePath + validDir[i].name + "/" + "PARAM.SFO");
+			sfoFile = pspFileSystem.GetFileInfo(savePath + validDir[i].name + "/" + SFO_FILENAME);
 			sfoFiles.push_back(sfoFile);
 		}
 
@@ -1263,7 +1262,7 @@ int SavedataParam::GetFilesList(SceUtilitySavedataParam *param)
 	fileList->resultNumNormalEntries = 0;
 	fileList->resultNumSystemEntries = 0;
 
-	// We need PARAMS.SFO's SAVEDATA_FILE_LIST to determine which entries are secure.
+	// We need PARAM.SFO's SAVEDATA_FILE_LIST to determine which entries are secure.
 	PSPFileInfo sfoFileInfo = pspFileSystem.GetFileInfo(dirPath + "/" + SFO_FILENAME);
 	std::set<std::string> secureFilenames;
 

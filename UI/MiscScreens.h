@@ -24,11 +24,12 @@
 
 #include "Common/UI/UIScreen.h"
 #include "Common/File/DirListing.h"
+#include "Common/File/Path.h"
 
 struct ShaderInfo;
 struct TextureShaderInfo;
 
-extern std::string boot_filename;
+extern Path boot_filename;
 void UIBackgroundInit(UIContext &dc);
 void UIBackgroundShutdown();
 
@@ -49,7 +50,7 @@ public:
 	void DrawBackground(UIContext &dc) override;
 	void sendMessage(const char *message, const char *value) override;
 protected:
-	std::string gamePath_;
+	Path gamePath_;
 };
 
 class UIDialogScreenWithBackground : public UIDialogScreen {
@@ -64,12 +65,12 @@ protected:
 
 class UIDialogScreenWithGameBackground : public UIDialogScreenWithBackground {
 public:
-	UIDialogScreenWithGameBackground(const std::string &gamePath)
+	UIDialogScreenWithGameBackground(const Path &gamePath)
 		: UIDialogScreenWithBackground(), gamePath_(gamePath) {}
 	void DrawBackground(UIContext &dc) override;
 	void sendMessage(const char *message, const char *value) override;
 protected:
-	std::string gamePath_;
+	Path gamePath_;
 };
 
 class PromptScreen : public UIDialogScreenWithBackground {
@@ -162,4 +163,21 @@ private:
 	UI::EventReturn OnTwitter(UI::EventParams &e);
 
 	double startTime_ = 0.0;
+};
+
+class SettingInfoMessage : public UI::LinearLayout {
+public:
+	SettingInfoMessage(int align, UI::AnchorLayoutParams *lp);
+
+	void SetBottomCutoff(float y) {
+		cutOffY_ = y;
+	}
+	void Show(const std::string &text, UI::View *refView = nullptr);
+
+	void Draw(UIContext &dc);
+
+private:
+	UI::TextView *text_ = nullptr;
+	double timeShown_ = 0.0;
+	float cutOffY_;
 };

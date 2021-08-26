@@ -3,40 +3,43 @@
 #include <string>
 #include <vector>
 
-#include <stdio.h>
+#include <cstdio>
 
 #include <inttypes.h>
 
-// Beginnings of a directory utility system. TODO: Improve.
+#include "Common/File/Path.h"
 
 namespace File {
 
 struct FileInfo {
 	std::string name;
-	std::string fullName;
-	bool exists;
-	bool isDirectory;
-	bool isWritable;
-	uint64_t size;
+	Path fullName;
+	bool exists = false;
+	bool isDirectory = false;
+	bool isWritable = false;
+	uint64_t size = 0;
 
-	uint64_t atime;
-	uint64_t mtime;
-	uint64_t ctime;
-	uint32_t access;  // st_mode & 0x1ff
+	uint64_t atime = 0;
+	uint64_t mtime = 0;
+	uint64_t ctime = 0;
+	uint32_t access = 0;  // st_mode & 0x1ff
 
 	bool operator <(const FileInfo &other) const;
 };
 
-bool GetFileInfo(const char *path, FileInfo *fileInfo);
+bool GetFileInfo(const Path &path, FileInfo *fileInfo);
 
 enum {
-	GETFILES_GETHIDDEN = 1
+	GETFILES_GETHIDDEN = 1,
+	GETFILES_GET_NAVIGATION_ENTRIES = 2,  // If you don't set this, "." and ".." will be skipped.
 };
-size_t GetFilesInDir(const char *directory, std::vector<FileInfo> *files, const char *filter = nullptr, int flags = 0);
-int64_t GetDirectoryRecursiveSize(const std::string &path, const char *filter = nullptr, int flags = 0);
+
+bool GetFilesInDir(const Path &directory, std::vector<FileInfo> *files, const char *filter = nullptr, int flags = 0);
+int64_t GetDirectoryRecursiveSize(const Path &path, const char *filter = nullptr, int flags = 0);
+std::vector<File::FileInfo> ApplyFilter(std::vector<File::FileInfo> files, const char *filter);
 
 #ifdef _WIN32
 std::vector<std::string> GetWindowsDrives();
 #endif
 
-}
+}  // namespace File

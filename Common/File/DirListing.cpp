@@ -1,6 +1,6 @@
 #include "ppsspp_config.h"
 
-#ifdef _WIN32
+#if PPSSPP_PLATFORM(WINDOWS)
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
 #include <direct.h>
@@ -20,8 +20,10 @@
 
 #include "Common/Data/Encoding/Utf8.h"
 #include "Common/StringUtils.h"
+#include "Common/Net/URL.h"
 #include "Common/File/DirListing.h"
 #include "Common/File/FileUtil.h"
+#include "Common/File/AndroidStorage.h"
 
 #if !defined(__linux__) && !defined(_WIN32) && !defined(__QNX__)
 #define stat64 stat
@@ -36,20 +38,31 @@
 
 namespace File {
 
-bool GetFileInfo(const char *path, FileInfo * fileInfo) {
+#if PPSSPP_PLATFORM(WINDOWS)
+static uint64_t FiletimeToStatTime(FILETIME ft) {
+	const int windowsTickResolution = 10000000;
+	const int64_t secToUnixEpoch = 11644473600LL;
+	int64_t ticks = ((uint64_t)ft.dwHighDateTime << 32) | ft.dwLowDateTime;
+	return (int64_t)(ticks / windowsTickResolution - secToUnixEpoch);
+};
+#endif
+
+bool GetFileInfo(const Path &path, FileInfo * fileInfo) {
+	switch (path.Type()) {
+	case PathType::NATIVE:
+		break;  // OK
+	case PathType::CONTENT_URI:
+		return Android_GetFileInfo(path.ToString(), fileInfo);
+	default:
+		return false;
+	}
+
 	// TODO: Expand relative paths?
 	fileInfo->fullName = path;
 
-#ifdef _WIN32
-	auto FiletimeToStatTime = [](FILETIME ft) {
-		const int windowsTickResolution = 10000000;
-		const int64_t secToUnixEpoch = 11644473600LL;
-		int64_t ticks = ((uint64_t)ft.dwHighDateTime << 32) | ft.dwLowDateTime;
-		return (int64_t)(ticks / windowsTickResolution - secToUnixEpoch);
-	};
-
+#if PPSSPP_PLATFORM(WINDOWS)
 	WIN32_FILE_ATTRIBUTE_DATA attrs;
-	if (!GetFileAttributesExW(ConvertUTF8ToWString(path).c_str(), GetFileExInfoStandard, &attrs)) {
+	if (!GetFileAttributesExW(path.ToWString().c_str(), GetFileExInfoStandard, &attrs)) {
 		fileInfo->size = 0;
 		fileInfo->isDirectory = false;
 		fileInfo->exists = false;
@@ -74,10 +87,10 @@ bool GetFileInfo(const char *path, FileInfo * fileInfo) {
 
 #if (defined __ANDROID__) && (__ANDROID_API__ < 21)
 	struct stat file_info;
-	int result = stat(path, &file_info);
+	int result = stat(path.c_str(), &file_info);
 #else
 	struct stat64 file_info;
-	int result = stat64(path, &file_info);
+	int result = stat64(path.c_str(), &file_info);
 #endif
 	if (result < 0) {
 		fileInfo->exists = false;
@@ -99,10 +112,10 @@ bool GetFileInfo(const char *path, FileInfo * fileInfo) {
 	return true;
 }
 
-bool GetModifTime(const std::string & filename, tm & return_time) {
+bool GetModifTime(const Path &filename, tm & return_time) {
 	memset(&return_time, 0, sizeof(return_time));
 	FileInfo info;
-	if (GetFileInfo(filename.c_str(), &info)) {
+	if (GetFileInfo(filename, &info)) {
 		time_t t = info.mtime;
 		localtime_r((time_t*)&t, &return_time);
 		return true;
@@ -122,14 +135,48 @@ bool FileInfo::operator <(const FileInfo & other) const {
 		return false;
 }
 
-size_t GetFilesInDir(const char *directory, std::vector<FileInfo> * files, const char *filter, int flags) {
-	size_t foundEntries = 0;
+std::vector<File::FileInfo> ApplyFilter(std::vector<File::FileInfo> files, const char *filter) {
+	std::set<std::string> filters;
+	if (filter) {
+		std::string tmp;
+		while (*filter) {
+			if (*filter == ':') {
+				filters.insert("." + tmp);
+				tmp.clear();
+			} else {
+				tmp.push_back(*filter);
+			}
+			filter++;
+		}
+		if (!tmp.empty())
+			filters.insert("." + tmp);
+	}
+
+	auto pred = [&](const File::FileInfo &info) {
+		if (info.isDirectory || !filter)
+			return false;
+		std::string ext = info.fullName.GetFileExtension();
+		return filters.find(ext) == filters.end();
+	};
+	files.erase(std::remove_if(files.begin(), files.end(), pred), files.end());
+	return files;
+}
+
+bool GetFilesInDir(const Path &directory, std::vector<FileInfo> *files, const char *filter, int flags) {
+	if (directory.Type() == PathType::CONTENT_URI) {
+		std::vector<File::FileInfo> fileList = Android_ListContentUri(directory.ToString());
+		*files = ApplyFilter(fileList, filter);
+		std::sort(files->begin(), files->end());
+		return true;
+	}
+
 	std::set<std::string> filters;
 	if (filter) {
 		std::string tmp;
 		while (*filter) {
 			if (*filter == ':') {
 				filters.insert(std::move(tmp));
+				tmp.clear();
 			} else {
 				tmp.push_back(*filter);
 			}
@@ -138,93 +185,114 @@ size_t GetFilesInDir(const char *directory, std::vector<FileInfo> * files, const
 		if (!tmp.empty())
 			filters.insert(std::move(tmp));
 	}
-#ifdef _WIN32
+
+#if PPSSPP_PLATFORM(WINDOWS)
+	if (directory.IsRoot()) {
+		// Special path that means root of file system.
+		std::vector<std::string> drives = File::GetWindowsDrives();
+		for (auto drive = drives.begin(); drive != drives.end(); ++drive) {
+			if (*drive == "A:/" || *drive == "B:/")
+				continue;
+			File::FileInfo fake;
+			fake.fullName = Path(*drive);
+			fake.name = *drive;
+			fake.isDirectory = true;
+			fake.exists = true;
+			fake.size = 0;
+			fake.isWritable = false;
+			files->push_back(fake);
+		}
+		return files->size();
+	}
 	// Find the first file in the directory.
 	WIN32_FIND_DATA ffd;
-	HANDLE hFind = FindFirstFileEx((ConvertUTF8ToWString(directory) + L"\\*").c_str(), FindExInfoStandard, &ffd, FindExSearchNameMatch, NULL, 0);
+	HANDLE hFind = FindFirstFileEx((directory.ToWString() + L"\\*").c_str(), FindExInfoStandard, &ffd, FindExSearchNameMatch, NULL, 0);
 	if (hFind == INVALID_HANDLE_VALUE) {
 		return 0;
 	}
-	// windows loop
-	do
-	{
+	do {
 		const std::string virtualName = ConvertWStringToUTF8(ffd.cFileName);
-#else
-	struct dirent *result = NULL;
-
-	//std::string directoryWithSlash = directory;
-	//if (directoryWithSlash.back() != '/')
-	//	directoryWithSlash += "/";
-
-	DIR *dirp = opendir(directory);
-	if (!dirp)
-		return 0;
-	// non windows loop
-	while ((result = readdir(dirp)))
-	{
-		const std::string virtualName(result->d_name);
-#endif
 		// check for "." and ".."
-		if (virtualName == "." || virtualName == "..")
+		if (!(flags & GETFILES_GET_NAVIGATION_ENTRIES) && (virtualName == "." || virtualName == ".."))
 			continue;
-
 		// Remove dotfiles (optional with flag.)
-		if (!(flags & GETFILES_GETHIDDEN))
-		{
-#ifdef _WIN32
+		if (!(flags & GETFILES_GETHIDDEN)) {
 			if ((ffd.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN) != 0)
 				continue;
-#else
-			if (virtualName[0] == '.')
-				continue;
-#endif
 		}
 
 		FileInfo info;
 		info.name = virtualName;
-		std::string dir = directory;
-
-		// Only append a slash if there isn't one on the end.
-		size_t lastSlash = dir.find_last_of("/");
-		if (lastSlash != (dir.length() - 1))
-			dir.append("/");
-
-		info.fullName = dir + virtualName;
-		info.isDirectory = IsDirectory(info.fullName);
+		info.fullName = directory / virtualName;
 		info.exists = true;
-		info.size = 0;
-		info.isWritable = false;  // TODO - implement some kind of check
+		info.size = ((uint64_t)ffd.nFileSizeHigh << 32) | ffd.nFileSizeLow;
+		info.isDirectory = (ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+		info.isWritable = (ffd.dwFileAttributes & FILE_ATTRIBUTE_READONLY) == 0;
+		info.atime = FiletimeToStatTime(ffd.ftLastAccessTime);
+		info.mtime = FiletimeToStatTime(ffd.ftLastWriteTime);
+		info.ctime = FiletimeToStatTime(ffd.ftCreationTime);
 		if (!info.isDirectory) {
-			std::string ext = GetFileExtension(info.fullName);
-			if (filter) {
-				if (filters.find(ext) == filters.end())
+			std::string ext = info.fullName.GetFileExtension();
+			if (!ext.empty()) {
+				ext = ext.substr(1);  // Remove the dot.
+				if (filter && filters.find(ext) == filters.end()) {
 					continue;
+				}
 			}
 		}
-
-		if (files)
-			files->push_back(std::move(info));
-		foundEntries++;
-#ifdef _WIN32
+		files->push_back(info);
 	} while (FindNextFile(hFind, &ffd) != 0);
 	FindClose(hFind);
 #else
+	struct dirent *result = NULL;
+	DIR *dirp = opendir(directory.c_str());
+	if (!dirp)
+		return 0;
+	while ((result = readdir(dirp))) {
+		const std::string virtualName(result->d_name);
+		// check for "." and ".."
+		if (!(flags & GETFILES_GET_NAVIGATION_ENTRIES) && (virtualName == "." || virtualName == ".."))
+			continue;
+
+		// Remove dotfiles (optional with flag.)
+		if (!(flags & GETFILES_GETHIDDEN)) {
+			if (virtualName[0] == '.')
+				continue;
+		}
+
+		// Let's just reuse GetFileInfo. We're calling stat anyway to get isDirectory information.
+		Path fullName = directory / virtualName;
+
+		FileInfo info;
+		info.name = virtualName;
+		if (!GetFileInfo(fullName, &info)) {
+			continue;
+		}
+		if (!info.isDirectory) {
+			std::string ext = info.fullName.GetFileExtension();
+			if (!ext.empty()) {
+				ext = ext.substr(1);  // Remove the dot.
+				if (filter && filters.find(ext) == filters.end()) {
+					continue;
+				}
+			}
+		}
+		files->push_back(info);
 	}
 	closedir(dirp);
 #endif
-	if (files)
-		std::sort(files->begin(), files->end());
-	return foundEntries;
+	std::sort(files->begin(), files->end());
+	return true;
 }
 
-int64_t GetDirectoryRecursiveSize(const std::string & path, const char *filter, int flags) {
+int64_t GetDirectoryRecursiveSize(const Path &path, const char *filter, int flags) {
 	std::vector<FileInfo> fileInfo;
-	GetFilesInDir(path.c_str(), &fileInfo, filter, flags);
+	GetFilesInDir(path, &fileInfo, filter, flags);
 	int64_t sizeSum = 0;
-	// Note: GetFilesInDir does not fill in fileSize properly.
+	// Note: GetFilesInDir does not fill in fileSize.
 	for (size_t i = 0; i < fileInfo.size(); i++) {
 		FileInfo finfo;
-		GetFileInfo(fileInfo[i].fullName.c_str(), &finfo);
+		GetFileInfo(fileInfo[i].fullName, &finfo);
 		if (!finfo.isDirectory)
 			sizeSum += finfo.size;
 		else
@@ -233,7 +301,7 @@ int64_t GetDirectoryRecursiveSize(const std::string & path, const char *filter, 
 	return sizeSum;
 }
 
-#ifdef _WIN32
+#if PPSSPP_PLATFORM(WINDOWS)
 // Returns a vector with the device names
 std::vector<std::string> GetWindowsDrives()
 {
@@ -259,8 +327,8 @@ std::vector<std::string> GetWindowsDrives()
 		}
 	}
 	return drives;
-#endif
+#endif  // PPSSPP_PLATFORM(UWP)
 }
-#endif
+#endif  // PPSSPP_PLATFORM(WINDOWS)
 
 }  // namespace File

@@ -18,6 +18,7 @@
 #pragma once
 
 #include "Common/CommonTypes.h"
+#include "Common/File/Path.h"
 #include "Core/CoreParameter.h"
 
 class MetaFileSystem;
@@ -32,10 +33,12 @@ enum GlobalUIState {
 	UISTATE_PAUSEMENU,
 	UISTATE_INGAME,
 	UISTATE_EXIT,
+	UISTATE_EXCEPTION,
 };
 
 // Use these in conjunction with GetSysDirectory.
 enum PSPDirectories {
+	DIRECTORY_PSP,
 	DIRECTORY_CHEATS,
 	DIRECTORY_SCREENSHOT,
 	DIRECTORY_SYSTEM,
@@ -51,6 +54,8 @@ enum PSPDirectories {
 	DIRECTORY_VIDEO,
 	DIRECTORY_AUDIO,
 	DIRECTORY_MEMSTICK_ROOT,
+	DIRECTORY_EXDATA,
+	DIRECTORY_CUSTOM_SHADERS,
 };
 
 class GraphicsContext;
@@ -96,7 +101,10 @@ bool IsAudioInitialised();
 
 void UpdateLoadedFile(FileLoader *fileLoader);
 
-std::string GetSysDirectory(PSPDirectories directoryType);
+// NOTE: These are almost all derived from g_Config.memStickDirectory directly -
+// they are not stored anywhere.
+Path GetSysDirectory(PSPDirectories directoryType);
+
 #ifdef _WIN32
 void InitSysDirectories();
 #endif

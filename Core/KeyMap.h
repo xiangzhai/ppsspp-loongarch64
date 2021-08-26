@@ -35,7 +35,7 @@ enum {
 	VIRTKEY_AXIS_X_MAX = 0x40000003,
 	VIRTKEY_AXIS_Y_MAX = 0x40000004,
 	VIRTKEY_RAPID_FIRE = 0x40000005,
-	VIRTKEY_UNTHROTTLE = 0x40000006,
+	VIRTKEY_FASTFORWARD = 0x40000006,
 	VIRTKEY_PAUSE = 0x40000007,
 	VIRTKEY_SPEED_TOGGLE = 0x40000008,
 	VIRTKEY_AXIS_RIGHT_X_MIN = 0x40000009,
@@ -163,4 +163,6 @@ namespace KeyMap {
 
 	const std::set<std::string> &GetSeenPads();
 	void AutoConfForPad(const std::string &name);
+
+	bool IsKeyMapped(int device, int key);
 }

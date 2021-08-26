@@ -18,6 +18,9 @@
 #include "ppsspp_config.h"
 
 #include <algorithm>
+#include <functional>
+
+using namespace std::placeholders;
 
 #include "Common/Render/TextureAtlas.h"
 #include "Common/GPU/OpenGL/GLFeatures.h"
@@ -93,6 +96,7 @@
 static AVIDump avi;
 #endif
 
+// TODO: Ugly!
 static bool frameStep_;
 static int lastNumFlips;
 static bool startDumping;
@@ -129,14 +133,50 @@ static void __EmuScreenVblank()
 #endif
 }
 
-EmuScreen::EmuScreen(const std::string &filename)
-	: bootPending_(true), gamePath_(filename), invalid_(true), quit_(false), pauseTrigger_(false), saveStatePreviewShownTime_(0.0), saveStatePreview_(nullptr) {
-	memset(axisState_, 0, sizeof(axisState_));
+// Handles control rotation due to internal screen rotation.
+// TODO: This should be a callback too, so we don't actually call the __Ctrl functions
+// from settings screens, etc.
+static void SetPSPAnalog(int stick, float x, float y) {
+	switch (g_Config.iInternalScreenRotation) {
+	case ROTATION_LOCKED_HORIZONTAL:
+		// Standard rotation. No change.
+		break;
+	case ROTATION_LOCKED_HORIZONTAL180:
+		x = -x;
+		y = -y;
+		break;
+	case ROTATION_LOCKED_VERTICAL:
+	{
+		float new_y = -x;
+		x = y;
+		y = new_y;
+		break;
+	}
+	case ROTATION_LOCKED_VERTICAL180:
+	{
+		float new_y = y = x;
+		x = -y;
+		y = new_y;
+		break;
+	}
+	default:
+		break;
+	}
+
+	__CtrlSetAnalogXY(stick, x, y);
+}
+
+EmuScreen::EmuScreen(const Path &filename)
+	: gamePath_(filename) {
 	saveStateSlot_ = SaveState::GetCurrentSlot();
 	__DisplayListenVblank(__EmuScreenVblank);
 	frameStep_ = false;
 	lastNumFlips = gpuStats.numFlips;
 	startDumping = false;
+	controlMapper_.SetCallbacks(
+		std::bind(&EmuScreen::onVKeyDown, this, _1),
+		std::bind(&EmuScreen::onVKeyUp, this, _1),
+		&SetPSPAnalog);
 
 	// Make sure we don't leave it at powerdown after the last game.
 	// TODO: This really should be handled elsewhere if it isn't.
@@ -147,10 +187,11 @@ EmuScreen::EmuScreen(const std::string &filename)
 	OnChatMenu.Handle(this, &EmuScreen::OnChat);
 }
 
-bool EmuScreen::bootAllowStorage(const std::string &filename) {
+bool EmuScreen::bootAllowStorage(const Path &filename) {
 	// No permissions needed.  The easy life.
-	if (filename.find("http://") == 0 || filename.find("https://") == 0)
+	if (filename.Type() == PathType::HTTP)
 		return true;
+
 	if (!System_GetPropertyBool(SYSPROP_SUPPORTS_PERMISSIONS))
 		return true;
 
@@ -178,7 +219,7 @@ bool EmuScreen::bootAllowStorage(const std::string &filename) {
 	return false;
 }
 
-void EmuScreen::bootGame(const std::string &filename) {
+void EmuScreen::bootGame(const Path &filename) {
 	if (PSP_IsIniting()) {
 		std::string error_string;
 		bootPending_ = !PSP_InitUpdate(&error_string);
@@ -195,7 +236,7 @@ void EmuScreen::bootGame(const std::string &filename) {
 		return;
 	}
 
-	g_BackgroundAudio.SetGame("");
+	g_BackgroundAudio.SetGame(Path());
 
 	// Check permission status first, in case we came from a shortcut.
 	if (!bootAllowStorage(filename))
@@ -246,8 +287,8 @@ void EmuScreen::bootGame(const std::string &filename) {
 	coreParam.graphicsContext = PSP_CoreParameter().graphicsContext;
 	coreParam.enableSound = g_Config.bEnableSound;
 	coreParam.fileToStart = filename;
-	coreParam.mountIso = "";
-	coreParam.mountRoot = "";
+	coreParam.mountIso.clear();
+	coreParam.mountRoot.clear();
 	coreParam.startBreak = !g_Config.bAutoRun;
 	coreParam.printfEmuLog = false;
 	coreParam.headLess = false;
@@ -307,7 +348,6 @@ void EmuScreen::bootComplete() {
 		osm.Show(sc->T("PressESC", "Press ESC to open the pause menu"), 3.0f);
 	}
 #endif
-	memset(virtKeys, 0, sizeof(virtKeys));
 
 #if !PPSSPP_PLATFORM(UWP)
 	if (GetGPUBackend() == GPUBackend::OPENGL) {
@@ -413,11 +453,11 @@ void EmuScreen::sendMessage(const char *message, const char *value) {
 	} else if (!strcmp(message, "boot")) {
 		const char *ext = strrchr(value, '.');
 		if (ext != nullptr && !strcmp(ext, ".ppst")) {
-			SaveState::Load(value, -1, &AfterStateBoot);
+			SaveState::Load(Path(value), -1, &AfterStateBoot);
 		} else {
 			PSP_Shutdown();
 			bootPending_ = true;
-			gamePath_ = value;
+			gamePath_ = Path(value);
 			// Don't leave it on CORE_POWERDOWN, we'll sometimes aggressively bail.
 			Core_UpdateState(CORE_POWERUP);
 		}
@@ -465,6 +505,15 @@ void EmuScreen::sendMessage(const char *message, const char *value) {
 			OnChatMenu.Trigger(e);
 		}
 #endif
+	} else if (!strcmp(message, "app_resumed") && screenManager()->topScreen() == this) {
+		if (System_GetPropertyInt(SYSPROP_DEVICE_TYPE) == DEVICE_TYPE_TV) {
+			if (!KeyMap::IsKeyMapped(DEVICE_ID_PAD_0, VIRTKEY_PAUSE) || !KeyMap::IsKeyMapped(DEVICE_ID_PAD_1, VIRTKEY_PAUSE)) {
+				// If it's a TV (so no built-in back button), and there's no back button mapped to a pad,
+				// use this as the fallback way to get into the menu.
+
+				screenManager()->push(new GamePauseScreen(gamePath_));
+			}
+		}
 	}
 }
 
@@ -504,11 +553,11 @@ void EmuScreen::onVKeyDown(int virtualKeyCode) {
 	auto sc = GetI18NCategory("Screen");
 
 	switch (virtualKeyCode) {
-	case VIRTKEY_UNTHROTTLE:
+	case VIRTKEY_FASTFORWARD:
 		if (coreState == CORE_STEPPING) {
 			Core_EnableStepping(false);
 		}
-		PSP_CoreParameter().unthrottle = true;
+		PSP_CoreParameter().fastForward = true;
 		break;
 
 	case VIRTKEY_SPEED_TOGGLE:
@@ -595,31 +644,6 @@ void EmuScreen::onVKeyDown(int virtualKeyCode) {
 	}
 #endif
 
-	case VIRTKEY_AXIS_X_MIN:
-	case VIRTKEY_AXIS_X_MAX:
-		setVKeyAnalogX(CTRL_STICK_LEFT, VIRTKEY_AXIS_X_MIN, VIRTKEY_AXIS_X_MAX);
-		break;
-	case VIRTKEY_AXIS_Y_MIN:
-	case VIRTKEY_AXIS_Y_MAX:
-		setVKeyAnalogY(CTRL_STICK_LEFT, VIRTKEY_AXIS_Y_MIN, VIRTKEY_AXIS_Y_MAX);
-		break;
-
-	case VIRTKEY_AXIS_RIGHT_X_MIN:
-	case VIRTKEY_AXIS_RIGHT_X_MAX:
-		setVKeyAnalogX(CTRL_STICK_RIGHT, VIRTKEY_AXIS_RIGHT_X_MIN, VIRTKEY_AXIS_RIGHT_X_MAX);
-		break;
-	case VIRTKEY_AXIS_RIGHT_Y_MIN:
-	case VIRTKEY_AXIS_RIGHT_Y_MAX:
-		setVKeyAnalogY(CTRL_STICK_RIGHT, VIRTKEY_AXIS_RIGHT_Y_MIN, VIRTKEY_AXIS_RIGHT_Y_MAX);
-		break;
-
-	case VIRTKEY_ANALOG_LIGHTLY:
-		setVKeyAnalogX(CTRL_STICK_LEFT, VIRTKEY_AXIS_X_MIN, VIRTKEY_AXIS_X_MAX);
-		setVKeyAnalogY(CTRL_STICK_LEFT, VIRTKEY_AXIS_Y_MIN, VIRTKEY_AXIS_Y_MAX);
-		setVKeyAnalogX(CTRL_STICK_RIGHT, VIRTKEY_AXIS_RIGHT_X_MIN, VIRTKEY_AXIS_RIGHT_X_MAX);
-		setVKeyAnalogY(CTRL_STICK_RIGHT, VIRTKEY_AXIS_RIGHT_Y_MIN, VIRTKEY_AXIS_RIGHT_Y_MAX);
-		break;
-
 	case VIRTKEY_REWIND:
 		if (SaveState::CanRewind()) {
 			SaveState::Rewind(&AfterSaveStateAction);
@@ -668,14 +692,6 @@ void EmuScreen::onVKeyDown(int virtualKeyCode) {
 	case VIRTKEY_MUTE_TOGGLE:
 		g_Config.bEnableSound = !g_Config.bEnableSound;
 		break;
-	case VIRTKEY_ANALOG_ROTATE_CW:
-		autoRotatingAnalogCW_ = true;
-		autoRotatingAnalogCCW_ = false;
-		break;
-	case VIRTKEY_ANALOG_ROTATE_CCW:
-		autoRotatingAnalogCW_ = false;
-		autoRotatingAnalogCCW_ = true;
-		break;
 	}
 }
 
@@ -683,8 +699,8 @@ void EmuScreen::onVKeyUp(int virtualKeyCode) {
 	auto sc = GetI18NCategory("Screen");
 
 	switch (virtualKeyCode) {
-	case VIRTKEY_UNTHROTTLE:
-		PSP_CoreParameter().unthrottle = false;
+	case VIRTKEY_FASTFORWARD:
+		PSP_CoreParameter().fastForward = false;
 		break;
 
 	case VIRTKEY_SPEED_CUSTOM1:
@@ -700,288 +716,30 @@ void EmuScreen::onVKeyUp(int virtualKeyCode) {
 		}
 		break;
 
-	case VIRTKEY_AXIS_X_MIN:
-	case VIRTKEY_AXIS_X_MAX:
-		setVKeyAnalogX(CTRL_STICK_LEFT, VIRTKEY_AXIS_X_MIN, VIRTKEY_AXIS_X_MAX);
-		break;
-	case VIRTKEY_AXIS_Y_MIN:
-	case VIRTKEY_AXIS_Y_MAX:
-		setVKeyAnalogY(CTRL_STICK_LEFT, VIRTKEY_AXIS_Y_MIN, VIRTKEY_AXIS_Y_MAX);
-		break;
-
-	case VIRTKEY_AXIS_RIGHT_X_MIN:
-	case VIRTKEY_AXIS_RIGHT_X_MAX:
-		setVKeyAnalogX(CTRL_STICK_RIGHT, VIRTKEY_AXIS_RIGHT_X_MIN, VIRTKEY_AXIS_RIGHT_X_MAX);
-		break;
-	case VIRTKEY_AXIS_RIGHT_Y_MIN:
-	case VIRTKEY_AXIS_RIGHT_Y_MAX:
-		setVKeyAnalogY(CTRL_STICK_RIGHT, VIRTKEY_AXIS_RIGHT_Y_MIN, VIRTKEY_AXIS_RIGHT_Y_MAX);
-		break;
-
-	case VIRTKEY_ANALOG_LIGHTLY:
-		setVKeyAnalogX(CTRL_STICK_LEFT, VIRTKEY_AXIS_X_MIN, VIRTKEY_AXIS_X_MAX);
-		setVKeyAnalogY(CTRL_STICK_LEFT, VIRTKEY_AXIS_Y_MIN, VIRTKEY_AXIS_Y_MAX);
-		setVKeyAnalogX(CTRL_STICK_RIGHT, VIRTKEY_AXIS_RIGHT_X_MIN, VIRTKEY_AXIS_RIGHT_X_MAX);
-		setVKeyAnalogY(CTRL_STICK_RIGHT, VIRTKEY_AXIS_RIGHT_Y_MIN, VIRTKEY_AXIS_RIGHT_Y_MAX);
-		break;
-
 	case VIRTKEY_RAPID_FIRE:
 		__CtrlSetRapidFire(false);
 		break;
 
-	case VIRTKEY_ANALOG_ROTATE_CW:
-		autoRotatingAnalogCW_ = false;
-		__CtrlSetAnalogX(0.0f, 0);
-		__CtrlSetAnalogY(0.0f, 0);
-		break;
-
-	case VIRTKEY_ANALOG_ROTATE_CCW:
-		autoRotatingAnalogCCW_ = false;
-		__CtrlSetAnalogX(0.0f, 0);
-		__CtrlSetAnalogY(0.0f, 0);
-		break;
-
 	default:
 		break;
 	}
-}
-
-// Handles control rotation due to internal screen rotation.
-static void SetPSPAxis(char axis, float value, int stick) {
-	switch (g_Config.iInternalScreenRotation) {
-	case ROTATION_LOCKED_HORIZONTAL:
-		// Standard rotation.
-		break;
-	case ROTATION_LOCKED_HORIZONTAL180:
-		value = -value;
-		break;
-	case ROTATION_LOCKED_VERTICAL:
-		value = axis == 'Y' ? value : -value;
-		axis = (axis == 'X') ? 'Y' : 'X';
-		break;
-	case ROTATION_LOCKED_VERTICAL180:
-		value = axis == 'Y' ? -value : value;
-		axis = (axis == 'X') ? 'Y' : 'X';
-		break;
-	default:
-		break;
-	}
-	if (axis == 'X')
-		__CtrlSetAnalogX(value, stick);
-	else if (axis == 'Y')
-		__CtrlSetAnalogY(value, stick);
-}
-
-inline void EmuScreen::setVKeyAnalogX(int stick, int virtualKeyMin, int virtualKeyMax) {
-	const float value = virtKeys[VIRTKEY_ANALOG_LIGHTLY - VIRTKEY_FIRST] ? g_Config.fAnalogLimiterDeadzone : 1.0f;
-	float axis = 0.0f;
-	// The down events can repeat, so just trust the virtKeys array.
-	if (virtKeys[virtualKeyMin - VIRTKEY_FIRST])
-		axis -= value;
-	if (virtKeys[virtualKeyMax - VIRTKEY_FIRST])
-		axis += value;
-	SetPSPAxis('X', axis, stick);
-}
-
-inline void EmuScreen::setVKeyAnalogY(int stick, int virtualKeyMin, int virtualKeyMax) {
-	const float value = virtKeys[VIRTKEY_ANALOG_LIGHTLY - VIRTKEY_FIRST] ? g_Config.fAnalogLimiterDeadzone : 1.0f;
-	float axis = 0.0f;
-	if (virtKeys[virtualKeyMin - VIRTKEY_FIRST])
-		axis -= value;
-	if (virtKeys[virtualKeyMax - VIRTKEY_FIRST])
-		axis += value;
-	SetPSPAxis('Y', axis, stick);
 }
 
 bool EmuScreen::key(const KeyInput &key) {
 	Core_NotifyActivity();
 
-	std::vector<int> pspKeys;
-	KeyMap::KeyToPspButton(key.deviceId, key.keyCode, &pspKeys);
-
-	if (pspKeys.size() && (key.flags & KEY_IS_REPEAT)) {
-		// Claim that we handled this. Prevents volume key repeats from popping up the volume control on Android.
-		return true;
-	}
-
-	for (size_t i = 0; i < pspKeys.size(); i++) {
-		pspKey(pspKeys[i], key.flags);
-	}
-
-	if (!pspKeys.size() || key.deviceId == DEVICE_ID_DEFAULT) {
-		if ((key.flags & KEY_DOWN) && key.keyCode == NKCODE_BACK) {
-			pauseTrigger_ = true;
-			return true;
-		}
-	}
-
-	return pspKeys.size() > 0;
-}
-
-static int RotatePSPKeyCode(int x) {
-	switch (x) {
-	case CTRL_UP: return CTRL_RIGHT;
-	case CTRL_RIGHT: return CTRL_DOWN;
-	case CTRL_DOWN: return CTRL_LEFT;
-	case CTRL_LEFT: return CTRL_UP;
-	default:
-		return x;
-	}
-}
-
-void EmuScreen::pspKey(int pspKeyCode, int flags) {
-	int rotations = 0;
-	switch (g_Config.iInternalScreenRotation) {
-	case ROTATION_LOCKED_HORIZONTAL180:
-		rotations = 2;
-		break;
-	case ROTATION_LOCKED_VERTICAL:
-		rotations = 1;
-		break;
-	case ROTATION_LOCKED_VERTICAL180:
-		rotations = 3;
-		break;
-	}
-
-	for (int i = 0; i < rotations; i++) {
-		pspKeyCode = RotatePSPKeyCode(pspKeyCode);
-	}
-
-	if (pspKeyCode >= VIRTKEY_FIRST) {
-		int vk = pspKeyCode - VIRTKEY_FIRST;
-		if (flags & KEY_DOWN) {
-			virtKeys[vk] = true;
-			onVKeyDown(pspKeyCode);
-		}
-		if (flags & KEY_UP) {
-			virtKeys[vk] = false;
-			onVKeyUp(pspKeyCode);
-		}
-	} else {
-		// INFO_LOG(SYSTEM, "pspKey %i %i", pspKeyCode, flags);
-		if (flags & KEY_DOWN)
-			__CtrlButtonDown(pspKeyCode);
-		if (flags & KEY_UP)
-			__CtrlButtonUp(pspKeyCode);
-	}
+	return controlMapper_.Key(key, &pauseTrigger_);
 }
 
 bool EmuScreen::axis(const AxisInput &axis) {
 	Core_NotifyActivity();
 
-	if (axis.value > 0) {
-		processAxis(axis, 1);
-		return true;
-	} else if (axis.value < 0) {
-		processAxis(axis, -1);
-		return true;
-	} else if (axis.value == 0) {
-		// Both directions! Prevents sticking for digital input devices that are axises (like HAT)
-		processAxis(axis, 1);
-		processAxis(axis, -1);
-		return true;
-	}
-	return false;
-}
-
-inline bool IsAnalogStickKey(int key) {
-	switch (key) {
-	case VIRTKEY_AXIS_X_MIN:
-	case VIRTKEY_AXIS_X_MAX:
-	case VIRTKEY_AXIS_Y_MIN:
-	case VIRTKEY_AXIS_Y_MAX:
-	case VIRTKEY_AXIS_RIGHT_X_MIN:
-	case VIRTKEY_AXIS_RIGHT_X_MAX:
-	case VIRTKEY_AXIS_RIGHT_Y_MIN:
-	case VIRTKEY_AXIS_RIGHT_Y_MAX:
-		return true;
-	default:
-		return false;
-	}
-}
-
-void EmuScreen::processAxis(const AxisInput &axis, int direction) {
-	// Sanity check
-	if (axis.axisId < 0 || axis.axisId >= JOYSTICK_AXIS_MAX) {
-		return;
-	}
-
-	std::vector<int> results;
-	KeyMap::AxisToPspButton(axis.deviceId, axis.axisId, direction, &results);
-
-	for (size_t i = 0; i < results.size(); i++) {
-		int result = results[i];
-		switch (result) {
-		case VIRTKEY_AXIS_X_MIN:
-			SetPSPAxis('X', -fabs(axis.value), CTRL_STICK_LEFT);
-			break;
-		case VIRTKEY_AXIS_X_MAX:
-			SetPSPAxis('X', fabs(axis.value), CTRL_STICK_LEFT);
-			break;
-		case VIRTKEY_AXIS_Y_MIN:
-			SetPSPAxis('Y', -fabs(axis.value), CTRL_STICK_LEFT);
-			break;
-		case VIRTKEY_AXIS_Y_MAX:
-			SetPSPAxis('Y', fabs(axis.value), CTRL_STICK_LEFT);
-			break;
-
-		case VIRTKEY_AXIS_RIGHT_X_MIN:
-			SetPSPAxis('X', -fabs(axis.value), CTRL_STICK_RIGHT);
-			break;
-		case VIRTKEY_AXIS_RIGHT_X_MAX:
-			SetPSPAxis('X', fabs(axis.value), CTRL_STICK_RIGHT);
-			break;
-		case VIRTKEY_AXIS_RIGHT_Y_MIN:
-			SetPSPAxis('Y', -fabs(axis.value), CTRL_STICK_RIGHT);
-			break;
-		case VIRTKEY_AXIS_RIGHT_Y_MAX:
-			SetPSPAxis('Y', fabs(axis.value), CTRL_STICK_RIGHT);
-			break;
-		}
-	}
-
-	std::vector<int> resultsOpposite;
-	KeyMap::AxisToPspButton(axis.deviceId, axis.axisId, -direction, &resultsOpposite);
-
-	int axisState = 0;
-	float threshold = axis.deviceId == DEVICE_ID_MOUSE ? AXIS_BIND_THRESHOLD_MOUSE : AXIS_BIND_THRESHOLD;
-	if (direction == 1 && axis.value >= threshold) {
-		axisState = 1;
-	} else if (direction == -1 && axis.value <= -threshold) {
-		axisState = -1;
-	} else {
-		axisState = 0;
-	}
-
-	if (axisState != axisState_[axis.axisId]) {
-		axisState_[axis.axisId] = axisState;
-		if (axisState != 0) {
-			for (size_t i = 0; i < results.size(); i++) {
-				if (!IsAnalogStickKey(results[i]))
-					pspKey(results[i], KEY_DOWN);
-			}
-			// Also unpress the other direction (unless both directions press the same key.)
-			for (size_t i = 0; i < resultsOpposite.size(); i++) {
-				if (!IsAnalogStickKey(resultsOpposite[i]) && std::find(results.begin(), results.end(), resultsOpposite[i]) == results.end())
-					pspKey(resultsOpposite[i], KEY_UP);
-			}
-		} else if (axisState == 0) {
-			// Release both directions, trying to deal with some erratic controllers that can cause it to stick.
-			for (size_t i = 0; i < results.size(); i++) {
-				if (!IsAnalogStickKey(results[i]))
-					pspKey(results[i], KEY_UP);
-			}
-			for (size_t i = 0; i < resultsOpposite.size(); i++) {
-				if (!IsAnalogStickKey(resultsOpposite[i]))
-					pspKey(resultsOpposite[i], KEY_UP);
-			}
-		}
-	}
+	return controlMapper_.Axis(axis);
 }
 
 class GameInfoBGView : public UI::InertView {
 public:
-	GameInfoBGView(const std::string &gamePath, UI::LayoutParams *layoutParams) : InertView(layoutParams), gamePath_(gamePath) {
+	GameInfoBGView(const Path &gamePath, UI::LayoutParams *layoutParams) : InertView(layoutParams), gamePath_(gamePath) {
 	}
 
 	void Draw(UIContext &dc) override {
@@ -1013,7 +771,7 @@ public:
 	}
 
 protected:
-	std::string gamePath_;
+	Path gamePath_;
 	uint32_t color_ = 0xFFC0C0C0;
 };
 
@@ -1026,20 +784,29 @@ void EmuScreen::CreateViews() {
 
 	const Bounds &bounds = screenManager()->getUIContext()->GetLayoutBounds();
 	InitPadLayout(bounds.w, bounds.h);
-	root_ = CreatePadLayout(bounds.w, bounds.h, &pauseTrigger_);
+	root_ = CreatePadLayout(bounds.w, bounds.h, &pauseTrigger_, &controlMapper_);
 	if (g_Config.bShowDeveloperMenu) {
 		root_->Add(new Button(dev->T("DevMenu")))->OnClick.Handle(this, &EmuScreen::OnDevTools);
 	}
-	resumeButton_ = root_->Add(new Button(dev->T("Resume"), new AnchorLayoutParams(bounds.centerX(), NONE, NONE, 60, true)));
+
+	LinearLayout *buttons = new LinearLayout(Orientation::ORIENT_HORIZONTAL, new AnchorLayoutParams(bounds.centerX(), NONE, NONE, 60, true));
+	buttons->SetSpacing(20.0f);
+	root_->Add(buttons);
+
+	resumeButton_ = buttons->Add(new Button(dev->T("Resume")));
 	resumeButton_->OnClick.Handle(this, &EmuScreen::OnResume);
 	resumeButton_->SetVisibility(V_GONE);
+
+	resetButton_ = buttons->Add(new Button(dev->T("Reset")));
+	resetButton_->OnClick.Handle(this, &EmuScreen::OnReset);
+	resetButton_->SetVisibility(V_GONE);
 
 	cardboardDisableButton_ = root_->Add(new Button(sc->T("Cardboard VR OFF"), new AnchorLayoutParams(bounds.centerX(), NONE, NONE, 30, true)));
 	cardboardDisableButton_->OnClick.Handle(this, &EmuScreen::OnDisableCardboard);
 	cardboardDisableButton_->SetVisibility(V_GONE);
 	cardboardDisableButton_->SetScale(0.65f);  // make it smaller - this button can be in the way otherwise.
 
-	if (g_Config.bEnableNetworkChat) {
+	if (g_Config.bEnableNetworkChat && g_Config.iChatButtonPosition != 8) {
 		AnchorLayoutParams *layoutParams = nullptr;
 		switch (g_Config.iChatButtonPosition) {
 		case 0:
@@ -1078,7 +845,7 @@ void EmuScreen::CreateViews() {
 		chatButton_ = nullptr;
 	}
 
-	saveStatePreview_ = new AsyncImageFileView("", IS_FIXED, nullptr, new AnchorLayoutParams(bounds.centerX(), 100, NONE, NONE, true));
+	saveStatePreview_ = new AsyncImageFileView(Path(), IS_FIXED, new AnchorLayoutParams(bounds.centerX(), 100, NONE, NONE, true));
 	saveStatePreview_->SetFixedSize(160, 90);
 	saveStatePreview_->SetColor(0x90FFFFFF);
 	saveStatePreview_->SetVisibility(V_GONE);
@@ -1165,12 +932,20 @@ UI::EventReturn EmuScreen::OnResume(UI::EventParams &params) {
 	return UI::EVENT_DONE;
 }
 
+UI::EventReturn EmuScreen::OnReset(UI::EventParams &params) {
+	if (coreState == CoreState::CORE_RUNTIME_ERROR) {
+		NativeMessageReceived("reset", "");
+	}
+	return UI::EVENT_DONE;
+}
+
 void EmuScreen::update() {
 	using namespace UI;
 
 	UIScreen::update();
 	onScreenMessagesView_->SetVisibility(g_Config.bShowOnScreenMessages ? V_VISIBLE : V_GONE);
 	resumeButton_->SetVisibility(coreState == CoreState::CORE_RUNTIME_ERROR && Memory::MemFault_MayBeResumable() ? V_VISIBLE : V_GONE);
+	resetButton_->SetVisibility(coreState == CoreState::CORE_RUNTIME_ERROR ? V_VISIBLE : V_GONE);
 
 	if (bootPending_) {
 		bootGame(gamePath_);
@@ -1186,13 +961,13 @@ void EmuScreen::update() {
 	PSP_CoreParameter().pixelHeight = pixel_yres * bounds.h / dp_yres;
 #endif
 
-	if (!invalid_ && coreState != CORE_RUNTIME_ERROR) {
-		UpdateUIState(UISTATE_INGAME);
+	if (!invalid_) {
+		UpdateUIState(coreState != CORE_RUNTIME_ERROR ? UISTATE_INGAME : UISTATE_EXCEPTION);
 	}
 
 	if (errorMessage_.size()) {
 		auto err = GetI18NCategory("Error");
-		std::string errLoadingFile = gamePath_ + "\n";
+		std::string errLoadingFile = gamePath_.ToVisualString() + "\n";
 		errLoadingFile.append(err->T("Error loading file", "Could not load game"));
 		errLoadingFile.append(" ");
 		errLoadingFile.append(err->T(errorMessage_.c_str()));
@@ -1206,16 +981,7 @@ void EmuScreen::update() {
 	if (invalid_)
 		return;
 
-	if (autoRotatingAnalogCW_) {
-		const float now = time_now_d();
-		// Clamp to a square
-		__CtrlSetAnalogX(std::min(1.0f, std::max(-1.0f, 1.42f*cosf(now*-g_Config.fAnalogAutoRotSpeed))), 0);
-		__CtrlSetAnalogY(std::min(1.0f, std::max(-1.0f, 1.42f*sinf(now*-g_Config.fAnalogAutoRotSpeed))), 0);
-	} else if (autoRotatingAnalogCCW_) {
-		const float now = time_now_d();
-		__CtrlSetAnalogX(std::min(1.0f, std::max(-1.0f, 1.42f*cosf(now*g_Config.fAnalogAutoRotSpeed))), 0);
-		__CtrlSetAnalogY(std::min(1.0f, std::max(-1.0f, 1.42f*sinf(now*g_Config.fAnalogAutoRotSpeed))), 0);
-	}
+	controlMapper_.Update();
 
 	// This is here to support the iOS on screen back button.
 	if (pauseTrigger_) {
@@ -1228,7 +994,7 @@ void EmuScreen::update() {
 		if (saveStateSlot_ != currentSlot) {
 			saveStateSlot_ = currentSlot;
 
-			std::string fn;
+			Path fn;
 			if (SaveState::HasSaveInSlot(gamePath_, currentSlot)) {
 				fn = SaveState::GenerateSaveSlotFilename(gamePath_, currentSlot, SaveState::SCREENSHOT_EXTENSION);
 			}

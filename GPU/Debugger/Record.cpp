@@ -21,10 +21,12 @@
 #include <functional>
 #include <set>
 #include <vector>
+#include <mutex>
 #include <zstd.h>
 
 #include "Common/Common.h"
 #include "Common/File/FileUtil.h"
+#include "Common/Thread/ParallelLoop.h"
 #include "Common/Log.h"
 #include "Common/StringUtils.h"
 
@@ -47,7 +49,7 @@ namespace GPURecord {
 static bool active = false;
 static bool nextFrame = false;
 static int flipLastAction = -1;
-static std::function<void(const std::string &)> writeCallback;
+static std::function<void(const Path &)> writeCallback;
 
 static std::vector<u8> pushbuf;
 static std::vector<Command> commands;
@@ -68,20 +70,24 @@ static void FlushRegisters() {
 	}
 }
 
-static std::string GenRecordingFilename() {
-	const std::string dumpDir = GetSysDirectory(DIRECTORY_DUMP);
-	const std::string prefix = dumpDir + g_paramSFO.GetDiscID();
+static Path GenRecordingFilename() {
+	const Path dumpDir = GetSysDirectory(DIRECTORY_DUMP);
 
 	File::CreateFullPath(dumpDir);
 
+	const std::string prefix = g_paramSFO.GetDiscID();
+
 	for (int n = 1; n < 10000; ++n) {
 		std::string filename = StringFromFormat("%s_%04d.ppdmp", prefix.c_str(), n);
-		if (!File::Exists(filename)) {
-			return filename;
+
+		const Path path = dumpDir / filename;
+
+		if (!File::Exists(path)) {
+			return path;
 		}
 	}
 
-	return StringFromFormat("%s_%04d.ppdmp", prefix.c_str(), 9999);
+	return dumpDir / StringFromFormat("%s_%04d.ppdmp", prefix.c_str(), 9999);
 }
 
 static void BeginRecording() {
@@ -111,10 +117,10 @@ static void WriteCompressed(FILE *fp, const void *p, size_t sz) {
 	delete [] compressed;
 }
 
-static std::string WriteRecording() {
+static Path WriteRecording() {
 	FlushRegisters();
 
-	const std::string filename = GenRecordingFilename();
+	const Path filename = GenRecordingFilename();
 
 	NOTICE_LOG(G3D, "Recording filename: %s", filename.c_str());
 
@@ -175,7 +181,7 @@ static const u8 *mymemmem(const u8 *haystack, size_t off, size_t hlen, const u8 
 	std::mutex resultLock;
 
 	int range = (int)(last_possible - first_possible);
-	GlobalThreadPool::Loop([&](int l, int h) {
+	ParallelRangeLoop(&g_threadManager, [&](int l, int h) {
 		const u8 *p = haystack + off + l;
 		const u8 *pend = haystack + off + h;
 
@@ -412,13 +418,13 @@ bool Activate() {
 	return false;
 }
 
-void SetCallback(const std::function<void(const std::string &)> callback) {
+void SetCallback(const std::function<void(const Path &)> callback) {
 	writeCallback = callback;
 }
 
 static void FinishRecording() {
 	// We're done - this was just to write the result out.
-	std::string filename = WriteRecording();
+	Path filename = WriteRecording();
 	commands.clear();
 	pushbuf.clear();
 

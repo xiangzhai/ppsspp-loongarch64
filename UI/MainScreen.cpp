@@ -67,14 +67,15 @@
 
 bool MainScreen::showHomebrewTab = false;
 
-bool LaunchFile(ScreenManager *screenManager, std::string path) {
+bool LaunchFile(ScreenManager *screenManager, const Path &path) {
 	// Depending on the file type, we don't want to launch EmuScreen at all.
 	auto loader = ConstructFileLoader(path);
 	if (!loader) {
 		return false;
 	}
 
-	IdentifiedFileType type = Identify_File(loader);
+	std::string errorString;
+	IdentifiedFileType type = Identify_File(loader, &errorString);
 	delete loader;
 
 	switch (type) {
@@ -89,11 +90,12 @@ bool LaunchFile(ScreenManager *screenManager, std::string path) {
 	return true;
 }
 
-static bool IsTempPath(const std::string &str) {
-	std::string item = str;
+static bool IsTempPath(const Path &str) {
+	std::string item = str.ToString();
+
 #ifdef _WIN32
 	// Normalize slashes.
-	item = ReplaceAll(str, "/", "\\");
+	item = ReplaceAll(item, "/", "\\");
 #endif
 
 	std::vector<std::string> tempPaths = System_GetPropertyStringVec(SYSPROP_TEMP_DIRS);
@@ -115,7 +117,7 @@ static bool IsTempPath(const std::string &str) {
 
 class GameButton : public UI::Clickable {
 public:
-	GameButton(const std::string &gamePath, bool gridStyle, UI::LayoutParams *layoutParams = 0)
+	GameButton(const Path &gamePath, bool gridStyle, UI::LayoutParams *layoutParams = 0)
 		: UI::Clickable(layoutParams), gridStyle_(gridStyle), gamePath_(gamePath) {}
 
 	void Draw(UIContext &dc) override;
@@ -130,7 +132,7 @@ public:
 		}
 	}
 
-	const std::string &GamePath() const { return gamePath_; }
+	const Path &GamePath() const { return gamePath_; }
 
 	void SetHoldEnabled(bool hold) {
 		holdEnabled_ = hold;
@@ -196,20 +198,20 @@ private:
 		holdStart_ = 0.0;
 		UI::EventParams e{};
 		e.v = this;
-		e.s = gamePath_;
+		e.s = gamePath_.ToString();
 		down_ = false;
 		OnHoldClick.Trigger(e);
 	}
 	void TriggerOnHighlight(int focusFlags) {
 		UI::EventParams e{};
 		e.v = this;
-		e.s = gamePath_;
+		e.s = gamePath_.ToString();
 		e.a = focusFlags;
 		OnHighlight.Trigger(e);
 	}
 
 	bool gridStyle_;
-	std::string gamePath_;
+	Path gamePath_;
 	std::string title_;
 
 	double holdStart_ = 0.0;
@@ -417,14 +419,14 @@ std::string GameButton::DescribeText() const {
 
 class DirButton : public UI::Button {
 public:
-	DirButton(const std::string &path, bool gridStyle, UI::LayoutParams *layoutParams)
-		: UI::Button(path, layoutParams), path_(path), gridStyle_(gridStyle), absolute_(false) {}
-	DirButton(const std::string &path, const std::string &text, bool gridStyle, UI::LayoutParams *layoutParams = 0)
+	DirButton(const Path &path, bool gridStyle, UI::LayoutParams *layoutParams)
+		: UI::Button(path.ToString(), layoutParams), path_(path), gridStyle_(gridStyle), absolute_(false) {}
+	DirButton(const Path &path, const std::string &text, bool gridStyle, UI::LayoutParams *layoutParams = 0)
 		: UI::Button(text, layoutParams), path_(path), gridStyle_(gridStyle), absolute_(true) {}
 
 	virtual void Draw(UIContext &dc);
 
-	const std::string GetPath() const {
+	const Path &GetPath() const {
 		return path_;
 	}
 
@@ -433,7 +435,7 @@ public:
 	}
 
 private:
-	std::string path_;
+	Path path_;
 	bool gridStyle_;
 	bool absolute_;
 };
@@ -490,19 +492,19 @@ void DirButton::Draw(UIContext &dc) {
 	}
 }
 
-GameBrowser::GameBrowser(std::string path, BrowseFlags browseFlags, bool *gridStyle, ScreenManager *screenManager, std::string lastText, std::string lastLink, UI::LayoutParams *layoutParams)
+GameBrowser::GameBrowser(const Path &path, BrowseFlags browseFlags, bool *gridStyle, ScreenManager *screenManager, std::string lastText, std::string lastLink, UI::LayoutParams *layoutParams)
 	: LinearLayout(UI::ORIENT_VERTICAL, layoutParams), path_(path), gridStyle_(gridStyle), browseFlags_(browseFlags), lastText_(lastText), lastLink_(lastLink), screenManager_(screenManager) {
 	using namespace UI;
 	Refresh();
 }
 
-void GameBrowser::FocusGame(const std::string &gamePath) {
+void GameBrowser::FocusGame(const Path &gamePath) {
 	focusGamePath_ = gamePath;
 	Refresh();
 	focusGamePath_.clear();
 }
 
-void GameBrowser::SetPath(const std::string &path) {
+void GameBrowser::SetPath(const Path &path) {
 	path_.SetPath(path);
 	g_Config.currentDirectory = path_.GetPath();
 	Refresh();
@@ -531,26 +533,45 @@ UI::EventReturn GameBrowser::StorageClick(UI::EventParams &e) {
 		return UI::EVENT_DONE;
 	}
 	if (storageDirs.size() == 1) {
-		SetPath(storageDirs[0]);
+		SetPath(Path(storageDirs[0]));
 	} else {
 		// TODO: We should popup a dialog letting the user choose one.
-		SetPath(storageDirs[0]);
+		SetPath(Path(storageDirs[0]));
 	}
 	return UI::EVENT_DONE;
 }
 
-UI::EventReturn GameBrowser::HomeClick(UI::EventParams &e) {
-#if PPSSPP_PLATFORM(ANDROID) || PPSSPP_PLATFORM(SWITCH) || defined(USING_WIN_UI) || PPSSPP_PLATFORM(UWP)
-	SetPath(g_Config.memStickDirectory);
-#else
-	SetPath(getenv("HOME"));
-#endif
+UI::EventReturn GameBrowser::OnHomeClick(UI::EventParams &e) {
+	if (path_.GetPath().Type() == PathType::CONTENT_URI) {
+		Path rootPath = path_.GetPath().GetRootVolume();
+		if (rootPath != path_.GetPath()) {
+			SetPath(rootPath);
+			return UI::EVENT_DONE;
+		}
+		if (System_GetPropertyBool(SYSPROP_ANDROID_SCOPED_STORAGE)) {
+			// There'll be no sensible home, ignore.
+			return UI::EVENT_DONE;
+		}
+	}
+
+	SetPath(HomePath());
 	return UI::EVENT_DONE;
+}
+
+// TODO: This doesn't make that much sense for Android, especially after scoped storage..
+// Maybe we should have no home directory in this case. Or it should just navigate to the root
+// of the current folder tree.
+Path GameBrowser::HomePath() {
+#if PPSSPP_PLATFORM(ANDROID) || PPSSPP_PLATFORM(SWITCH) || defined(USING_WIN_UI) || PPSSPP_PLATFORM(UWP)
+	return g_Config.memStickDirectory;
+#else
+	return Path(getenv("HOME"));
+#endif
 }
 
 UI::EventReturn GameBrowser::PinToggleClick(UI::EventParams &e) {
 	auto &pinnedPaths = g_Config.vPinnedPaths;
-	const std::string path = File::ResolvePath(path_.GetPath());
+	const std::string path = File::ResolvePath(path_.GetPath().ToString());
 	if (IsCurrentPathPinned()) {
 		pinnedPaths.erase(std::remove(pinnedPaths.begin(), pinnedPaths.end(), path), pinnedPaths.end());
 	} else {
@@ -561,12 +582,15 @@ UI::EventReturn GameBrowser::PinToggleClick(UI::EventParams &e) {
 }
 
 bool GameBrowser::DisplayTopBar() {
-	return path_.GetPath() != "!RECENT";
+	return path_.GetPath().ToString() != "!RECENT";
 }
 
-bool GameBrowser::HasSpecialFiles(std::vector<std::string> &filenames) {
-	if (path_.GetPath() == "!RECENT") {
-		filenames = g_Config.recentIsos;
+bool GameBrowser::HasSpecialFiles(std::vector<Path> &filenames) {
+	if (path_.GetPath().ToString() == "!RECENT") {
+		filenames.clear();
+		for (auto &str : g_Config.recentIsos) {
+			filenames.push_back(Path(str));
+		}
 		return true;
 	}
 	return false;
@@ -612,7 +636,7 @@ void GameBrowser::Draw(UIContext &dc) {
 	}
 }
 
-static bool IsValidPBP(const std::string &path, bool allowHomebrew) {
+static bool IsValidPBP(const Path &path, bool allowHomebrew) {
 	if (!File::Exists(path))
 		return false;
 
@@ -651,7 +675,7 @@ void GameBrowser::Refresh() {
 		if (browseFlags_ & BrowseFlags::NAVIGATE) {
 			topBar->Add(new Spacer(2.0f));
 			topBar->Add(new TextView(path_.GetFriendlyPath().c_str(), ALIGN_VCENTER | FLAG_WRAP_TEXT, true, new LinearLayoutParams(FILL_PARENT, 64.0f, 1.0f)));
-			topBar->Add(new Choice(ImageID("I_HOME"), new LayoutParams(WRAP_CONTENT, 64.0f)))->OnClick.Handle(this, &GameBrowser::HomeClick);
+			topBar->Add(new Choice(ImageID("I_HOME"), new LayoutParams(WRAP_CONTENT, 64.0f)))->OnClick.Handle(this, &GameBrowser::OnHomeClick);
 			if (System_GetPropertyBool(SYSPROP_HAS_ADDITIONAL_STORAGE)) {
 				topBar->Add(new Choice(ImageID("I_SDCARD"), new LayoutParams(WRAP_CONTENT, 64.0f)))->OnClick.Handle(this, &GameBrowser::StorageClick);
 			}
@@ -661,6 +685,11 @@ void GameBrowser::Refresh() {
 		} else {
 			topBar->Add(new Spacer(new LinearLayoutParams(FILL_PARENT, 64.0f, 1.0f)));
 		}
+
+		if (browseFlags_ & BrowseFlags::HOMEBREW_STORE) {
+			topBar->Add(new Choice(mm->T("PPSSPP Homebrew Store"), new UI::LinearLayoutParams(WRAP_CONTENT, 64.0f)))->OnClick.Handle(this, &GameBrowser::OnHomebrewStore);
+		}
+
 		ChoiceStrip *layoutChoice = topBar->Add(new ChoiceStrip(ORIENT_HORIZONTAL));
 		layoutChoice->AddChoice(ImageID("I_GRID"));
 		layoutChoice->AddChoice(ImageID("I_LINES"));
@@ -706,7 +735,7 @@ void GameBrowser::Refresh() {
 
 	listingPending_ = !path_.IsListingReady();
 
-	std::vector<std::string> filenames;
+	std::vector<Path> filenames;
 	if (HasSpecialFiles(filenames)) {
 		for (size_t i = 0; i < filenames.size(); i++) {
 			gameButtons.push_back(new GameButton(filenames[i], *gridStyle_, new UI::LinearLayoutParams(*gridStyle_ == true ? UI::WRAP_CONTENT : UI::FILL_PARENT, UI::WRAP_CONTENT)));
@@ -718,11 +747,11 @@ void GameBrowser::Refresh() {
 			bool isGame = !fileInfo[i].isDirectory;
 			bool isSaveData = false;
 			// Check if eboot directory
-			if (!isGame && path_.GetPath().size() >= 4 && IsValidPBP(path_.GetPath() + fileInfo[i].name + "/EBOOT.PBP", true))
+			if (!isGame && path_.GetPath().size() >= 4 && IsValidPBP(path_.GetPath() / fileInfo[i].name / "EBOOT.PBP", true))
 				isGame = true;
-			else if (!isGame && File::Exists(path_.GetPath() + fileInfo[i].name + "/PSP_GAME/SYSDIR"))
+			else if (!isGame && File::Exists(path_.GetPath() / fileInfo[i].name / "PSP_GAME/SYSDIR"))
 				isGame = true;
-			else if (!isGame && File::Exists(path_.GetPath() + fileInfo[i].name + "/PARAM.SFO"))
+			else if (!isGame && File::Exists(path_.GetPath() / fileInfo[i].name / "PARAM.SFO"))
 				isSaveData = true;
 
 			if (!isGame && !isSaveData) {
@@ -756,14 +785,14 @@ void GameBrowser::Refresh() {
 
 	if (browseFlags_ & BrowseFlags::NAVIGATE) {
 		if (path_.CanNavigateUp()) {
-			gameList_->Add(new DirButton("..", *gridStyle_, new UI::LinearLayoutParams(UI::FILL_PARENT, UI::FILL_PARENT)))->
+			gameList_->Add(new DirButton(Path(std::string("..")), *gridStyle_, new UI::LinearLayoutParams(UI::FILL_PARENT, UI::FILL_PARENT)))->
 				OnClick.Handle(this, &GameBrowser::NavigateClick);
 		}
 
 		// Add any pinned paths before other directories.
 		auto pinnedPaths = GetPinnedPaths();
 		for (auto it = pinnedPaths.begin(), end = pinnedPaths.end(); it != end; ++it) {
-			gameList_->Add(new DirButton(*it, GetBaseName(*it), *gridStyle_, new UI::LinearLayoutParams(UI::FILL_PARENT, UI::FILL_PARENT)))->
+			gameList_->Add(new DirButton(*it, GetBaseName((*it).ToString()), *gridStyle_, new UI::LinearLayoutParams(UI::FILL_PARENT, UI::FILL_PARENT)))->
 				OnClick.Handle(this, &GameBrowser::NavigateClick);
 		}
 	}
@@ -788,7 +817,7 @@ void GameBrowser::Refresh() {
 	}
 
 	// Show a button to toggle pinning at the very end.
-	if (browseFlags_ & BrowseFlags::PIN) {
+	if ((browseFlags_ & BrowseFlags::PIN) && !path_.GetPath().empty()) {
 		std::string caption = IsCurrentPathPinned() ? "-" : "+";
 		if (!*gridStyle_) {
 			caption = IsCurrentPathPinned() ? mm->T("UnpinPath", "Unpin") : mm->T("PinPath", "Pin");
@@ -797,9 +826,8 @@ void GameBrowser::Refresh() {
 			OnClick.Handle(this, &GameBrowser::PinToggleClick);
 	}
 
-	if (browseFlags_ & BrowseFlags::HOMEBREW_STORE) {
-		Add(new Spacer());
-		Add(new Choice(mm->T("DownloadFromStore", "Download from the PPSSPP Homebrew Store"), new UI::LinearLayoutParams(UI::WRAP_CONTENT, UI::WRAP_CONTENT)))->OnClick.Handle(this, &GameBrowser::OnHomebrewStore);
+	if (path_.GetPath().empty()) {
+		Add(new TextView(mm->T("UseBrowseOrLoad", "Use Browse to choose a folder, or Load to choose a file.")));
 	}
 
 	if (!lastText_.empty() && gameButtons.empty()) {
@@ -810,19 +838,19 @@ void GameBrowser::Refresh() {
 
 bool GameBrowser::IsCurrentPathPinned() {
 	const auto paths = g_Config.vPinnedPaths;
-	return std::find(paths.begin(), paths.end(), File::ResolvePath(path_.GetPath())) != paths.end();
+	return std::find(paths.begin(), paths.end(), File::ResolvePath(path_.GetPath().ToString())) != paths.end();
 }
 
-const std::vector<std::string> GameBrowser::GetPinnedPaths() {
+const std::vector<Path> GameBrowser::GetPinnedPaths() {
 #ifndef _WIN32
 	static const std::string sepChars = "/";
 #else
 	static const std::string sepChars = "/\\";
 #endif
 
-	const std::string currentPath = File::ResolvePath(path_.GetPath());
+	const std::string currentPath = File::ResolvePath(path_.GetPath().ToString());
 	const std::vector<std::string> paths = g_Config.vPinnedPaths;
-	std::vector<std::string> results;
+	std::vector<Path> results;
 	for (size_t i = 0; i < paths.size(); ++i) {
 		// We want to exclude the current path, and its direct children.
 		if (paths[i] == currentPath) {
@@ -836,7 +864,7 @@ const std::vector<std::string> GameBrowser::GetPinnedPaths() {
 			}
 		}
 
-		results.push_back(paths[i]);
+		results.push_back(Path(paths[i]));
 	}
 	return results;
 }
@@ -867,7 +895,7 @@ const std::string GameBrowser::GetBaseName(const std::string &path) {
 UI::EventReturn GameBrowser::GameButtonClick(UI::EventParams &e) {
 	GameButton *button = static_cast<GameButton *>(e.v);
 	UI::EventParams e2{};
-	e2.s = button->GamePath();
+	e2.s = button->GamePath().ToString();
 	// Insta-update - here we know we are already on the right thread.
 	OnChoice.Trigger(e2);
 	return UI::EVENT_DONE;
@@ -876,7 +904,7 @@ UI::EventReturn GameBrowser::GameButtonClick(UI::EventParams &e) {
 UI::EventReturn GameBrowser::GameButtonHoldClick(UI::EventParams &e) {
 	GameButton *button = static_cast<GameButton *>(e.v);
 	UI::EventParams e2{};
-	e2.s = button->GamePath();
+	e2.s = button->GamePath().ToString();
 	// Insta-update - here we know we are already on the right thread.
 	OnHoldChoice.Trigger(e2);
 	return UI::EVENT_DONE;
@@ -890,11 +918,11 @@ UI::EventReturn GameBrowser::GameButtonHighlight(UI::EventParams &e) {
 
 UI::EventReturn GameBrowser::NavigateClick(UI::EventParams &e) {
 	DirButton *button = static_cast<DirButton *>(e.v);
-	std::string text = button->GetPath();
+	Path text = button->GetPath();
 	if (button->PathAbsolute()) {
 		path_.SetPath(text);
 	} else {
-		path_.Navigate(text);
+		path_.Navigate(text.ToString());
 	}
 	g_Config.currentDirectory = path_.GetPath();
 	Refresh();
@@ -927,12 +955,12 @@ UI::EventReturn GameBrowser::OnHomebrewStore(UI::EventParams &e) {
 
 MainScreen::MainScreen() {
 	System_SendMessage("event", "mainscreen");
-	g_BackgroundAudio.SetGame("");
+	g_BackgroundAudio.SetGame(Path());
 	lastVertical_ = UseVerticalLayout();
 }
 
 MainScreen::~MainScreen() {
-	g_BackgroundAudio.SetGame("");
+	g_BackgroundAudio.SetGame(Path());
 }
 
 void MainScreen::CreateViews() {
@@ -955,7 +983,8 @@ void MainScreen::CreateViews() {
 	tabHolder_->SetClip(true);
 
 	bool showRecent = g_Config.iMaxRecent > 0;
-	bool hasStorageAccess = System_GetPermissionStatus(SYSTEM_PERMISSION_STORAGE) == PERMISSION_STATUS_GRANTED;
+	bool hasStorageAccess = !System_GetPropertyBool(SYSPROP_SUPPORTS_PERMISSIONS) ||
+		System_GetPermissionStatus(SYSTEM_PERMISSION_STORAGE) == PERMISSION_STATUS_GRANTED;
 	bool storageIsTemporary = IsTempPath(GetSysDirectory(DIRECTORY_SAVEDATA)) && !confirmedTemporary_;
 	if (showRecent && !hasStorageAccess) {
 		showRecent = !g_Config.recentIsos.empty();
@@ -965,7 +994,7 @@ void MainScreen::CreateViews() {
 		ScrollView *scrollRecentGames = new ScrollView(ORIENT_VERTICAL, new LinearLayoutParams(FILL_PARENT, WRAP_CONTENT));
 		scrollRecentGames->SetTag("MainScreenRecentGames");
 		GameBrowser *tabRecentGames = new GameBrowser(
-			"!RECENT", BrowseFlags::NONE, &g_Config.bGridView1, screenManager(), "", "",
+			Path("!RECENT"), BrowseFlags::NONE, &g_Config.bGridView1, screenManager(), "", "",
 			new LinearLayoutParams(FILL_PARENT, FILL_PARENT));
 		scrollRecentGames->Add(tabRecentGames);
 		gameBrowsers_.push_back(tabRecentGames);
@@ -983,7 +1012,7 @@ void MainScreen::CreateViews() {
 		ScrollView *scrollHomebrew = new ScrollView(ORIENT_VERTICAL, new LinearLayoutParams(FILL_PARENT, WRAP_CONTENT));
 		scrollHomebrew->SetTag("MainScreenHomebrew");
 
-		GameBrowser *tabAllGames = new GameBrowser(g_Config.currentDirectory, BrowseFlags::STANDARD, &g_Config.bGridView2, screenManager(),
+		GameBrowser *tabAllGames = new GameBrowser(Path(g_Config.currentDirectory), BrowseFlags::STANDARD, &g_Config.bGridView2, screenManager(),
 			mm->T("How to get games"), "https://www.ppsspp.org/getgames.html",
 			new LinearLayoutParams(FILL_PARENT, FILL_PARENT));
 		GameBrowser *tabHomebrew = new GameBrowser(GetSysDirectory(DIRECTORY_GAME), BrowseFlags::HOMEBREW_STORE, &g_Config.bGridView3, screenManager(),
@@ -1190,45 +1219,19 @@ void MainScreen::sendMessage(const char *message, const char *value) {
 
 	if (screenManager()->topScreen() == this) {
 		if (!strcmp(message, "boot")) {
-			LaunchFile(screenManager(), std::string(value));
+			LaunchFile(screenManager(), Path(std::string(value)));
 		}
 		if (!strcmp(message, "browse_fileSelect")) {
 			INFO_LOG(SYSTEM, "Attempting to launch: '%s'", value);
-			LaunchFile(screenManager(), std::string(value));
+			LaunchFile(screenManager(), Path(std::string(value)));
 		}
 		if (!strcmp(message, "browse_folderSelect")) {
-			std::string filename;
-#if PPSSPP_PLATFORM(ANDROID)
-			// Hacky way to get a normal path from a Android Storage Framework path.
-			// Is not gonna work forever, but ship-hack for 1.11.
-			std::string url = value;
-			const char *prefix = "content://com.android.externalstorage.documents/tree/";
-			const char *primaryPrefix = "/storage/primary/";
-			if (startsWith(url, prefix)) {
-				url = UriDecode(url.substr(strlen(prefix)));
-				size_t colonPos = url.find(":");
-				if (colonPos != std::string::npos) {
-					url[colonPos] = '/';
-				}
-				url = "/storage/" + url;
-				if (startsWith(url, primaryPrefix)) {
-					url = g_Config.memStickDirectory + url.substr(strlen(primaryPrefix));
-				}
-				INFO_LOG(SYSTEM, "Translated '%s' into '%s'", value, url.c_str());
-			} else {
-				// It's not gonna work.
-				// TODO: Show an error message?
-				INFO_LOG(SYSTEM, "Failed to parse content string: '%s'", value);
-				return;
-			}
-			filename = url;
-#else
-			filename = value;
-#endif
+			std::string filename = value;
 			INFO_LOG(SYSTEM, "Got folder: '%s'", filename.c_str());
 			int tab = tabHolder_->GetCurrentTab();
-			if (tab >= 0 && tab < (int)gameBrowsers_.size()) {
-				gameBrowsers_[tab]->SetPath(filename);
+			// Don't allow browsing in the other tabs (I don't think it's possible to reach the option though)
+			if (tab == 1) {
+				gameBrowsers_[tab]->SetPath(Path(filename));
 			}
 		}
 	}
@@ -1292,7 +1295,7 @@ void MainScreen::DrawBackground(UIContext &dc) {
 	}
 }
 
-bool MainScreen::DrawBackgroundFor(UIContext &dc, const std::string &gamePath, float progress) {
+bool MainScreen::DrawBackgroundFor(UIContext &dc, const Path &gamePath, float progress) {
 	dc.Flush();
 
 	std::shared_ptr<GameInfo> ginfo;
@@ -1324,11 +1327,7 @@ bool MainScreen::DrawBackgroundFor(UIContext &dc, const std::string &gamePath, f
 
 UI::EventReturn MainScreen::OnGameSelected(UI::EventParams &e) {
 	g_Config.Save("MainScreen::OnGameSelected");
-#ifdef _WIN32
-	std::string path = ReplaceAll(e.s, "\\", "/");
-#else
-	std::string path = e.s;
-#endif
+	Path path(e.s);
 	std::shared_ptr<GameInfo> ginfo = g_gameInfoCache->GetInfo(nullptr, path, GAMEINFO_WANTBG);
 	if (ginfo && ginfo->fileType == IdentifiedFileType::PSP_SAVEDATA_DIRECTORY) {
 		return UI::EVENT_DONE;
@@ -1348,11 +1347,7 @@ UI::EventReturn MainScreen::OnGameSelected(UI::EventParams &e) {
 UI::EventReturn MainScreen::OnGameHighlight(UI::EventParams &e) {
 	using namespace UI;
 
-#ifdef _WIN32
-	std::string path = ReplaceAll(e.s, "\\", "/");
-#else
-	std::string path = e.s;
-#endif
+	Path path(e.s);
 
 	// Don't change when re-highlighting what's already highlighted.
 	if (path != highlightedGamePath_ || e.a == FF_LOSTFOCUS) {
@@ -1379,18 +1374,13 @@ UI::EventReturn MainScreen::OnGameHighlight(UI::EventParams &e) {
 
 UI::EventReturn MainScreen::OnGameSelectedInstant(UI::EventParams &e) {
 	g_Config.Save("MainScreen::OnGameSelectedInstant");
-#ifdef _WIN32
-	std::string path = ReplaceAll(e.s, "\\", "/");
-#else
-	std::string path = e.s;
-#endif
 	ScreenManager *screen = screenManager();
-	LaunchFile(screen, path);
+	LaunchFile(screen, Path(e.s));
 	return UI::EVENT_DONE;
 }
 
 UI::EventReturn MainScreen::OnGameSettings(UI::EventParams &e) {
-	screenManager()->push(new GameSettingsScreen("", ""));
+	screenManager()->push(new GameSettingsScreen(Path(), ""));
 	return UI::EVENT_DONE;
 }
 
@@ -1420,7 +1410,9 @@ UI::EventReturn MainScreen::OnForums(UI::EventParams &e) {
 
 UI::EventReturn MainScreen::OnExit(UI::EventParams &e) {
 	// Let's make sure the config was saved, since it may not have been.
-	g_Config.Save("MainScreen::OnExit");
+	if (!g_Config.Save("MainScreen::OnExit")) {
+		System_SendMessage("toast", "Failed to save settings!\nCheck permissions, or try to restart the device.");
+	}
 
 	// Request the framework to exit cleanly.
 	System_SendMessage("finish", "");
@@ -1450,7 +1442,7 @@ void MainScreen::dialogFinished(const Screen *dialog, DialogResult result) {
 			restoreFocusGamePath_.clear();
 		} else {
 			// Not refocusing, so we need to stop the audio.
-			g_BackgroundAudio.SetGame("");
+			g_BackgroundAudio.SetGame(Path());
 		}
 	}
 }
@@ -1474,7 +1466,7 @@ void UmdReplaceScreen::CreateViews() {
 		ScrollView *scrollRecentGames = new ScrollView(ORIENT_VERTICAL, new LinearLayoutParams(FILL_PARENT, WRAP_CONTENT));
 		scrollRecentGames->SetTag("UmdReplaceRecentGames");
 		GameBrowser *tabRecentGames = new GameBrowser(
-			"!RECENT", BrowseFlags::NONE, &g_Config.bGridView1, screenManager(), "", "",
+			Path("!RECENT"), BrowseFlags::NONE, &g_Config.bGridView1, screenManager(), "", "",
 			new LinearLayoutParams(FILL_PARENT, FILL_PARENT));
 		scrollRecentGames->Add(tabRecentGames);
 		leftColumn->AddTab(mm->T("Recent"), scrollRecentGames);
@@ -1484,7 +1476,7 @@ void UmdReplaceScreen::CreateViews() {
 	ScrollView *scrollAllGames = new ScrollView(ORIENT_VERTICAL, new LinearLayoutParams(FILL_PARENT, WRAP_CONTENT));
 	scrollAllGames->SetTag("UmdReplaceAllGames");
 
-	GameBrowser *tabAllGames = new GameBrowser(g_Config.currentDirectory, BrowseFlags::STANDARD, &g_Config.bGridView2, screenManager(),
+	GameBrowser *tabAllGames = new GameBrowser(Path(g_Config.currentDirectory), BrowseFlags::STANDARD, &g_Config.bGridView2, screenManager(),
 		mm->T("How to get games"), "https://www.ppsspp.org/getgames.html",
 		new LinearLayoutParams(FILL_PARENT, FILL_PARENT));
 
@@ -1516,7 +1508,7 @@ void UmdReplaceScreen::update() {
 }
 
 UI::EventReturn UmdReplaceScreen::OnGameSelected(UI::EventParams &e) {
-	__UmdReplace(e.s);
+	__UmdReplace(Path(e.s));
 	TriggerFinish(DR_OK);
 	return UI::EVENT_DONE;
 }
@@ -1527,12 +1519,12 @@ UI::EventReturn UmdReplaceScreen::OnCancel(UI::EventParams &e) {
 }
 
 UI::EventReturn UmdReplaceScreen::OnGameSettings(UI::EventParams &e) {
-	screenManager()->push(new GameSettingsScreen(""));
+	screenManager()->push(new GameSettingsScreen(Path()));
 	return UI::EVENT_DONE;
 }
 
 UI::EventReturn UmdReplaceScreen::OnGameSelectedInstant(UI::EventParams &e) {
-	__UmdReplace(e.s);
+	__UmdReplace(Path(e.s));
 	TriggerFinish(DR_OK);
 	return UI::EVENT_DONE;
 }

@@ -134,7 +134,9 @@ void HttpImageFileView::DownloadCompletedCallback(http::Download &download) {
 void HttpImageFileView::Draw(UIContext &dc) {
 	using namespace Draw;
 	if (!texture_ && !textureFailed_ && !path_.empty() && !download_) {
-		download_ = downloader_->StartDownloadWithCallback(path_, "", std::bind(&HttpImageFileView::DownloadCompletedCallback, this, std::placeholders::_1));
+		auto cb = std::bind(&HttpImageFileView::DownloadCompletedCallback, this, std::placeholders::_1);
+		const char *acceptMime = "image/png, image/jpeg, image/*; q=0.9, */*; q=0.8";
+		download_ = downloader_->StartDownloadWithCallback(path_, Path(), cb, acceptMime);
 		download_->SetHidden(true);
 	}
 
@@ -222,11 +224,13 @@ private:
 	bool IsGameInstalled() {
 		return g_GameManager.IsGameInstalled(entry_.file);
 	}
+	std::string DownloadURL();
 
 	StoreEntry entry_;
 	UI::Button *installButton_ = nullptr;
 	UI::Button *launchButton_ = nullptr;
 	UI::Button *cancelButton_ = nullptr;
+	UI::TextView *speedView_ = nullptr;
 	bool wasInstalled_ = false;
 };
 
@@ -243,12 +247,19 @@ void ProductView::CreateViews() {
 	auto st = GetI18NCategory("Store");
 	auto di = GetI18NCategory("Dialog");
 	wasInstalled_ = IsGameInstalled();
+	bool isDownloading = g_GameManager.IsDownloading(DownloadURL());
 	if (!wasInstalled_) {
 		launchButton_ = nullptr;
-		installButton_ = Add(new Button(st->T("Install")));
+		LinearLayout *progressDisplay = new LinearLayout(ORIENT_HORIZONTAL);
+		installButton_ = progressDisplay->Add(new Button(st->T("Install")));
 		installButton_->OnClick.Handle(this, &ProductView::OnInstall);
+
+		speedView_ = progressDisplay->Add(new TextView(""));
+		speedView_->SetVisibility(isDownloading ? V_VISIBLE : V_GONE);
+		Add(progressDisplay);
 	} else {
 		installButton_ = nullptr;
+		speedView_ = nullptr;
 		Add(new TextView(st->T("Already Installed")));
 		Add(new Button(st->T("Uninstall")))->OnClick.Handle(this, &ProductView::OnUninstall);
 		launchButton_ = new Button(st->T("Launch Game"));
@@ -258,16 +269,19 @@ void ProductView::CreateViews() {
 
 	cancelButton_ = Add(new Button(di->T("Cancel")));
 	cancelButton_->OnClick.Handle(this, &ProductView::OnCancel);
-	cancelButton_->SetVisibility(V_GONE);
+	cancelButton_->SetVisibility(isDownloading ? V_VISIBLE : V_GONE);
 
 	// Add star rating, comments etc?
-	Add(new TextView(entry_.description, ALIGN_LEFT | FLAG_WRAP_TEXT, false));
+
+	// Draw each line separately so focusing can scroll.
+	std::vector<std::string> lines;
+	SplitString(entry_.description, '\n', lines);
+	for (auto &line : lines) {
+		Add(new TextView(line, ALIGN_LEFT | FLAG_WRAP_TEXT, false))->SetFocusable(true);
+	}
 
 	float size = entry_.size / (1024.f * 1024.f);
-	char temp[256];
-	sprintf(temp, "%s: %.2f %s", st->T("Size"), size, st->T("MB"));
-
-	Add(new TextView(temp));
+	Add(new TextView(StringFromFormat("%s: %.2f %s", st->T("Size"), size, st->T("MB"))));
 }
 
 void ProductView::Update() {
@@ -277,30 +291,43 @@ void ProductView::Update() {
 	if (installButton_) {
 		installButton_->SetEnabled(g_GameManager.GetState() == GameManagerState::IDLE);
 	}
-	if (cancelButton_ && g_GameManager.GetState() != GameManagerState::DOWNLOADING)
-		cancelButton_->SetVisibility(UI::V_GONE);
+	if (g_GameManager.GetState() == GameManagerState::DOWNLOADING) {
+		if (speedView_) {
+			float speed = g_GameManager.DownloadSpeedKBps();
+			speedView_->SetText(StringFromFormat("%0.1f KB/s", speed));
+		}
+	} else {
+		if (cancelButton_)
+			cancelButton_->SetVisibility(UI::V_GONE);
+		if (speedView_)
+			speedView_->SetVisibility(UI::V_GONE);
+	}
 	if (launchButton_)
 		launchButton_->SetEnabled(g_GameManager.GetState() == GameManagerState::IDLE);
 	View::Update();
 }
 
-UI::EventReturn ProductView::OnInstall(UI::EventParams &e) {
-	std::string fileUrl;
+std::string ProductView::DownloadURL() {
 	if (entry_.downloadURL.empty()) {
-		// Construct the URL, easy to predict from our server
-		std::string shortName = entry_.file;
-		if (shortName.find('.') == std::string::npos)
-			shortName += ".zip";
-		fileUrl = storeBaseUrl + "files/" + shortName;
+		// Construct the URL.
+		return storeBaseUrl + "files/" + entry_.file + ".zip";
 	} else {
 		// Use the provided URL, for external hosting.
-		fileUrl = entry_.downloadURL;
+		return entry_.downloadURL;
 	}
+}
+
+UI::EventReturn ProductView::OnInstall(UI::EventParams &e) {
+	std::string fileUrl = DownloadURL();
 	if (installButton_) {
 		installButton_->SetEnabled(false);
 	}
 	if (cancelButton_) {
 		cancelButton_->SetVisibility(UI::V_VISIBLE);
+	}
+	if (speedView_) {
+		speedView_->SetVisibility(UI::V_VISIBLE);
+		speedView_->SetText("");
 	}
 	INFO_LOG(SYSTEM, "Triggering install of '%s'", fileUrl.c_str());
 	g_GameManager.DownloadAndInstall(fileUrl);
@@ -324,14 +351,11 @@ UI::EventReturn ProductView::OnLaunchClick(UI::EventParams &e) {
 		return UI::EVENT_DONE;
 	}
 
-	std::string pspGame = GetSysDirectory(DIRECTORY_GAME);
-	std::string path = pspGame + entry_.file;
-#ifdef _WIN32
-	path = ReplaceAll(path, "\\", "/");
-#endif
+	Path pspGame = GetSysDirectory(DIRECTORY_GAME);
+	Path path = pspGame / entry_.file;
 	UI::EventParams e2{};
 	e2.v = e.v;
-	e2.s = path;
+	e2.s = path.ToString();
 	// Insta-update - here we know we are already on the right thread.
 	OnClickLaunch.Trigger(e2);
 	return UI::EVENT_DONE;
@@ -344,8 +368,8 @@ StoreScreen::StoreScreen() {
 	loading_ = true;
 
 	std::string indexPath = storeBaseUrl + "index.json";
-
-	listing_ = g_DownloadManager.StartDownload(indexPath, "");
+	const char *acceptMime = "application/json, */*; q=0.8";
+	listing_ = g_DownloadManager.StartDownload(indexPath, Path(), acceptMime);
 }
 
 StoreScreen::~StoreScreen() {
@@ -359,6 +383,7 @@ void StoreScreen::update() {
 	g_DownloadManager.Update();
 
 	if (listing_.get() != 0 && listing_->Done()) {
+		resultCode_ = listing_->ResultCode();
 		if (listing_->ResultCode() == 200) {
 			std::string listingJson;
 			listing_->buffer().TakeAll(&listingJson);
@@ -370,7 +395,7 @@ void StoreScreen::update() {
 			RecreateViews();
 		} else {
 			// Failed to contact store. Don't do anything.
-			ERROR_LOG(IO, "Download failed : error code %d", listing_->ResultCode());
+			ERROR_LOG(IO, "Download failed : error code %d", resultCode_);
 			connectionError_ = true;
 			loading_ = false;
 			RecreateViews();
@@ -446,7 +471,7 @@ void StoreScreen::CreateViews() {
 	LinearLayout *content;
 	if (connectionError_ || loading_) {
 		content = new LinearLayout(ORIENT_VERTICAL, new LinearLayoutParams(FILL_PARENT, FILL_PARENT, 1.0f));
-		content->Add(new TextView(loading_ ? st->T("Loading...") : st->T("Connection Error")));
+		content->Add(new TextView(loading_ ? std::string(st->T("Loading...")) : StringFromFormat("%s: %d", st->T("Connection Error"), resultCode_)));
 		content->Add(new Button(di->T("Retry")))->OnClick.Handle(this, &StoreScreen::OnRetry);
 		content->Add(new Button(di->T("Back")))->OnClick.Handle<UIScreen>(this, &UIScreen::OnBack);
 
@@ -523,7 +548,7 @@ UI::EventReturn StoreScreen::OnGameSelected(UI::EventParams &e) {
 
 UI::EventReturn StoreScreen::OnGameLaunch(UI::EventParams &e) {
 	std::string path = e.s;
-	screenManager()->switchScreen(new EmuScreen(path));
+	screenManager()->switchScreen(new EmuScreen(Path(path)));
 	return UI::EVENT_DONE;
 }
 
@@ -535,14 +560,6 @@ void StoreScreen::SetFilter(const StoreFilter &filter) {
 UI::EventReturn StoreScreen::OnRetry(UI::EventParams &e) {
 	SetFilter(filter_);
 	return UI::EVENT_DONE;
-}
-
-std::string StoreScreen::GetStoreJsonURL(std::string storePath) const {
-	std::string path = storeBaseUrl + storePath;
-	if (*path.rbegin() != '/')
-		path += '/';
-	path += "index.json";
-	return path;
 }
 
 std::string StoreScreen::GetTranslatedString(const json::JsonGet json, std::string key, const char *fallback) const {

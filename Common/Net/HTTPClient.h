@@ -5,9 +5,9 @@
 #include <thread>
 #include <cstdint>
 
+#include "Common/File/Path.h"
+#include "Common/Net/NetBuffer.h"
 #include "Common/Net/Resolve.h"
-
-#include "Common/Buffer.h"
 
 namespace net {
 
@@ -29,12 +29,12 @@ protected:
 	// Store the remote host here, so we can send it along through HTTP/1.1 requests.
 	// TODO: Move to http::client?
 	std::string host_;
-	int port_;
+	int port_ = -1;
 
-	addrinfo *resolved_;
+	addrinfo *resolved_ = nullptr;
 
 private:
-	uintptr_t sock_;
+	uintptr_t sock_ = -1;
 
 };
 
@@ -44,41 +44,63 @@ namespace http {
 
 bool GetHeaderValue(const std::vector<std::string> &responseHeaders, const std::string &header, std::string *value);
 
+struct RequestProgress {
+	RequestProgress() {}
+	explicit RequestProgress(bool *c) : cancelled(c) {}
+
+	float progress = 0.0f;
+	float kBps = 0.0f;
+	bool *cancelled = nullptr;
+};
+
+struct RequestParams {
+	RequestParams() {}
+	explicit RequestParams(const char *r) : resource(r) {}
+	RequestParams(const std::string &r, const char *a) : resource(r), acceptMime(a) {}
+
+	std::string resource;
+	const char *acceptMime = "*/*";
+};
+
 class Client : public net::Connection {
 public:
 	Client();
 	~Client();
 
 	// Return value is the HTTP return code. 200 means OK. < 0 means some local error.
-	int GET(const char *resource, Buffer *output, float *progress = nullptr, bool *cancelled = nullptr);
-	int GET(const char *resource, Buffer *output, std::vector<std::string> &responseHeaders, float *progress = nullptr, bool *cancelled = nullptr);
+	int GET(const RequestParams &req, Buffer *output, RequestProgress *progress);
+	int GET(const RequestParams &req, Buffer *output, std::vector<std::string> &responseHeaders, RequestProgress *progress);
 
 	// Return value is the HTTP return code.
-	int POST(const char *resource, const std::string &data, const std::string &mime, Buffer *output, float *progress = nullptr);
-	int POST(const char *resource, const std::string &data, Buffer *output, float *progress = nullptr);
+	int POST(const RequestParams &req, const std::string &data, const std::string &mime, Buffer *output, RequestProgress *progress);
+	int POST(const RequestParams &req, const std::string &data, Buffer *output, RequestProgress *progress);
 
 	// HEAD, PUT, DELETE aren't implemented yet, but can be done with SendRequest.
 
-	int SendRequest(const char *method, const char *resource, const char *otherHeaders = nullptr, float *progress = nullptr, bool *cancelled = nullptr);
-	int SendRequestWithData(const char *method, const char *resource, const std::string &data, const char *otherHeaders = nullptr, float *progress = nullptr, bool *cancelled = nullptr);
-	int ReadResponseHeaders(Buffer *readbuf, std::vector<std::string> &responseHeaders, float *progress = nullptr, bool *cancelled = nullptr);
+	int SendRequest(const char *method, const RequestParams &req, const char *otherHeaders, RequestProgress *progress);
+	int SendRequestWithData(const char *method, const RequestParams &req, const std::string &data, const char *otherHeaders, RequestProgress *progress);
+	int ReadResponseHeaders(net::Buffer *readbuf, std::vector<std::string> &responseHeaders, RequestProgress *progress);
 	// If your response contains a response, you must read it.
-	int ReadResponseEntity(Buffer *readbuf, const std::vector<std::string> &responseHeaders, Buffer *output, float *progress = nullptr, bool *cancelled = nullptr);
+	int ReadResponseEntity(net::Buffer *readbuf, const std::vector<std::string> &responseHeaders, Buffer *output, RequestProgress *progress);
 
 	void SetDataTimeout(double t) {
 		dataTimeout_ = t;
 	}
 
+	void SetUserAgent(const std::string &&value) {
+		userAgent_ = value;
+	}
+
 protected:
-	const char *userAgent_;
+	std::string userAgent_;
 	const char *httpVersion_;
-	double dataTimeout_ = -1.0;
+	double dataTimeout_ = 900.0;
 };
 
 // Not particularly efficient, but hey - it's a background download, that's pretty cool :P
 class Download {
 public:
-	Download(const std::string &url, const std::string &outfile);
+	Download(const std::string &url, const Path &outfile);
 	~Download();
 
 	void Start();
@@ -86,7 +108,8 @@ public:
 	void Join();
 
 	// Returns 1.0 when done. That one value can be compared exactly - or just use Done().
-	float Progress() const { return progress_; }
+	float Progress() const { return progress_.progress; }
+	float SpeedKBps() const { return progress_.kBps; }
 
 	bool Done() const { return completed_; }
 	bool Failed() const { return failed_; }
@@ -95,7 +118,11 @@ public:
 	int ResultCode() const { return resultCode_; }
 
 	std::string url() const { return url_; }
-	std::string outfile() const { return outfile_; }
+	const Path &outfile() const { return outfile_; }
+
+	void SetAccept(const char *mime) {
+		acceptMime_ = mime;
+	}
 
 	// If not downloading to a file, access this to get the result.
 	Buffer &buffer() { return buffer_; }
@@ -130,12 +157,14 @@ private:
 	int PerformGET(const std::string &url);
 	std::string RedirectLocation(const std::string &baseUrl);
 	void SetFailed(int code);
-	float progress_ = 0.0f;
+
+	RequestProgress progress_;
 	Buffer buffer_;
 	std::vector<std::string> responseHeaders_;
 	std::string url_;
-	std::string outfile_;
+	Path outfile_;
 	std::thread thread_;
+	const char *acceptMime_ = "*/*";
 	int resultCode_ = 0;
 	bool completed_ = false;
 	bool failed_ = false;
@@ -153,12 +182,13 @@ public:
 		CancelAll();
 	}
 
-	std::shared_ptr<Download> StartDownload(const std::string &url, const std::string &outfile);
+	std::shared_ptr<Download> StartDownload(const std::string &url, const Path &outfile, const char *acceptMime = nullptr);
 
 	std::shared_ptr<Download> StartDownloadWithCallback(
 		const std::string &url,
-		const std::string &outfile,
-		std::function<void(Download &)> callback);
+		const Path &outfile,
+		std::function<void(Download &)> callback,
+		const char *acceptMime = nullptr);
 
 	// Drops finished downloads from the list.
 	void Update();

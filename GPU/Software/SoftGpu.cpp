@@ -21,7 +21,7 @@
 #include "GPU/GPUState.h"
 #include "GPU/ge_constants.h"
 #include "GPU/Common/TextureDecoder.h"
-#include "Common/ColorConv.h"
+#include "Common/Data/Convert/ColorConv.h"
 #include "Common/GraphicsContext.h"
 #include "Core/Config.h"
 #include "Core/ConfigValues.h"
@@ -68,25 +68,12 @@ SoftGPU::SoftGPU(GraphicsContext *gfxCtx, Draw::DrawContext *draw)
 
 	Sampler::Init();
 	drawEngine_ = new SoftwareDrawEngine();
+	drawEngine_->Init();
 	drawEngineCommon_ = drawEngine_;
 
 	if (gfxCtx && draw) {
 		presentation_ = new PresentationCommon(draw_);
-
-		switch (GetGPUBackend()) {
-		case GPUBackend::OPENGL:
-			presentation_->SetLanguage(draw_->GetShaderLanguageDesc().shaderLanguage);
-			break;
-		case GPUBackend::DIRECT3D9:
-			presentation_->SetLanguage(HLSL_D3D9);
-			break;
-		case GPUBackend::DIRECT3D11:
-			presentation_->SetLanguage(HLSL_D3D11);
-			break;
-		case GPUBackend::VULKAN:
-			presentation_->SetLanguage(GLSL_VULKAN);
-			break;
-		}
+		presentation_->SetLanguage(draw_->GetShaderLanguageDesc().shaderLanguage);
 	}
 	Resized();
 }

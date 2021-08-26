@@ -48,7 +48,7 @@
 #include "UI/OnScreenDisplay.h"
 #include "UI/GameInfoCache.h"
 
-AsyncImageFileView::AsyncImageFileView(const std::string &filename, UI::ImageSizeMode sizeMode, PrioritizedWorkQueue *wq, UI::LayoutParams *layoutParams)
+AsyncImageFileView::AsyncImageFileView(const Path &filename, UI::ImageSizeMode sizeMode, UI::LayoutParams *layoutParams)
 	: UI::Clickable(layoutParams), canFocus_(true), filename_(filename), color_(0xFFFFFFFF), sizeMode_(sizeMode), textureFailed_(false), fixedSizeW_(0.0f), fixedSizeH_(0.0f) {}
 
 AsyncImageFileView::~AsyncImageFileView() {}
@@ -102,7 +102,7 @@ void AsyncImageFileView::GetContentDimensionsBySpec(const UIContext &dc, UI::Mea
 	}
 }
 
-void AsyncImageFileView::SetFilename(std::string filename) {
+void AsyncImageFileView::SetFilename(const Path &filename) {
 	if (filename_ != filename) {
 		textureFailed_ = false;
 		filename_ = filename;
@@ -157,10 +157,16 @@ void AsyncImageFileView::Draw(UIContext &dc) {
 	}
 }
 
+static void AfterSaveStateAction(SaveState::Status status, const std::string &message, void *) {
+	if (!message.empty() && (!g_Config.bDumpFrames || !g_Config.bDumpVideoOutput)) {
+		osm.Show(message, status == SaveState::Status::SUCCESS ? 2.0 : 5.0);
+	}
+}
+
 class ScreenshotViewScreen : public PopupScreen {
 public:
-	ScreenshotViewScreen(std::string filename, std::string title, int slot, std::shared_ptr<I18NCategory> i18n)
-		: PopupScreen(title, i18n->T("Load State"), "Back"), filename_(filename), slot_(slot) {}   // PopupScreen will translate Back on its own
+	ScreenshotViewScreen(const Path &filename, std::string title, int slot, std::shared_ptr<I18NCategory> i18n, Path gamePath)
+		: PopupScreen(title), filename_(filename), slot_(slot), gamePath_(gamePath) {}   // PopupScreen will translate Back on its own
 
 	int GetSlot() const {
 		return slot_;
@@ -176,20 +182,65 @@ protected:
 	bool ShowButtons() const override { return true; }
 
 	void CreatePopupContents(UI::ViewGroup *parent) override {
-		UI::LinearLayout *content = new UI::LinearLayout(UI::ORIENT_VERTICAL);
-		parent->Add(content);
-		UI::Margins contentMargins(10, 0);
-		content->Add(new AsyncImageFileView(filename_, UI::IS_KEEP_ASPECT, nullptr, new UI::LinearLayoutParams(480, 272, contentMargins)))->SetCanBeFocused(false);
+		using namespace UI;
+		auto pa = GetI18NCategory("Pause");
+		auto di = GetI18NCategory("Dialog");
+
+		ScrollView *scroll = new ScrollView(ORIENT_VERTICAL, new LinearLayoutParams(FILL_PARENT, 50, 1.0f));
+		LinearLayout *content = new LinearLayout(ORIENT_VERTICAL);
+		Margins contentMargins(10, 0);
+		content->Add(new AsyncImageFileView(filename_, IS_KEEP_ASPECT, new LinearLayoutParams(480, 272, contentMargins)))->SetCanBeFocused(false);
+
+		GridLayoutSettings gridsettings(240, 64, 5);
+		gridsettings.fillCells = true;
+		GridLayout *grid = content->Add(new GridLayoutList(gridsettings, new LayoutParams(FILL_PARENT, WRAP_CONTENT)));
+
+		Choice *back = new Choice(di->T("Back"));
+		Choice *undoButton = new Choice(pa->T("Undo last save"));
+		undoButton->SetEnabled(SaveState::HasUndoSaveInSlot(gamePath_, slot_));
+
+		grid->Add(new Choice(pa->T("Save State")))->OnClick.Handle(this, &ScreenshotViewScreen::OnSaveState);
+		grid->Add(new Choice(pa->T("Load State")))->OnClick.Handle(this, &ScreenshotViewScreen::OnLoadState);
+		grid->Add(back)->OnClick.Handle<UIScreen>(this, &UIScreen::OnBack);
+		grid->Add(undoButton)->OnClick.Handle(this, &ScreenshotViewScreen::OnUndoState);
+
+		scroll->Add(content);
+		parent->Add(scroll);
 	}
 
 private:
-	std::string filename_;
+	UI::EventReturn OnSaveState(UI::EventParams &e);
+	UI::EventReturn OnLoadState(UI::EventParams &e);
+	UI::EventReturn OnUndoState(UI::EventParams &e);
+
+	Path filename_;
+	Path gamePath_;
 	int slot_;
 };
 
+UI::EventReturn ScreenshotViewScreen::OnSaveState(UI::EventParams &e) {
+	g_Config.iCurrentStateSlot = slot_;
+	SaveState::SaveSlot(gamePath_, slot_, &AfterSaveStateAction);
+	TriggerFinish(DR_OK); //OK will close the pause screen as well
+	return UI::EVENT_DONE;
+}
+
+UI::EventReturn ScreenshotViewScreen::OnLoadState(UI::EventParams &e) {
+	g_Config.iCurrentStateSlot = slot_;
+	SaveState::LoadSlot(gamePath_, slot_, &AfterSaveStateAction);
+	TriggerFinish(DR_OK);
+	return UI::EVENT_DONE;
+}
+
+UI::EventReturn ScreenshotViewScreen::OnUndoState(UI::EventParams &e) {
+	SaveState::UndoSaveSlot(gamePath_, slot_);
+	TriggerFinish(DR_CANCEL);
+	return UI::EVENT_DONE;
+}
+
 class SaveSlotView : public UI::LinearLayout {
 public:
-	SaveSlotView(const std::string &gamePath, int slot, UI::LayoutParams *layoutParams = nullptr);
+	SaveSlotView(const Path &gamePath, int slot, UI::LayoutParams *layoutParams = nullptr);
 
 	void GetContentDimensions(const UIContext &dc, float &w, float &h) const override {
 		w = 500; h = 90;
@@ -201,7 +252,7 @@ public:
 		return slot_;
 	}
 
-	std::string GetScreenshotFilename() const {
+	Path GetScreenshotFilename() const {
 		return screenshotFilename_;
 	}
 
@@ -222,18 +273,17 @@ private:
 	UI::Button *loadStateButton_ = nullptr;
 
 	int slot_;
-	std::string gamePath_;
-	std::string screenshotFilename_;
+	Path gamePath_;
+	Path screenshotFilename_;
 };
 
-SaveSlotView::SaveSlotView(const std::string &gameFilename, int slot, UI::LayoutParams *layoutParams) : UI::LinearLayout(UI::ORIENT_HORIZONTAL, layoutParams), slot_(slot), gamePath_(gameFilename) {
+SaveSlotView::SaveSlotView(const Path &gameFilename, int slot, UI::LayoutParams *layoutParams) : UI::LinearLayout(UI::ORIENT_HORIZONTAL, layoutParams), slot_(slot), gamePath_(gameFilename) {
 	using namespace UI;
 
 	screenshotFilename_ = SaveState::GenerateSaveSlotFilename(gamePath_, slot, SaveState::SCREENSHOT_EXTENSION);
-	PrioritizedWorkQueue *wq = g_gameInfoCache->WorkQueue();
 	Add(new Spacer(5));
 
-	AsyncImageFileView *fv = Add(new AsyncImageFileView(screenshotFilename_, IS_DEFAULT, wq, new UI::LayoutParams(82 * 2, 47 * 2)));
+	AsyncImageFileView *fv = Add(new AsyncImageFileView(screenshotFilename_, IS_DEFAULT, new UI::LayoutParams(82 * 2, 47 * 2)));
 	fv->SetOverlayText(StringFromFormat("%d", slot_ + 1));
 
 	auto pa = GetI18NCategory("Pause");
@@ -262,7 +312,7 @@ SaveSlotView::SaveSlotView(const std::string &gameFilename, int slot, UI::Layout
 			}
 		}
 	} else {
-		fv->SetFilename("");
+		fv->SetFilename(Path());
 	}
 }
 
@@ -272,12 +322,6 @@ void SaveSlotView::Draw(UIContext &dc) {
 		dc.FillRect(UI::Drawable(0x70FFFFFF), GetBounds().Expand(3));
 	}
 	UI::LinearLayout::Draw(dc);
-}
-
-static void AfterSaveStateAction(SaveState::Status status, const std::string &message, void *) {
-	if (!message.empty() && (!g_Config.bDumpFrames || !g_Config.bDumpVideoOutput)) {
-		osm.Show(message, status == SaveState::Status::SUCCESS ? 2.0 : 5.0);
-	}
 }
 
 UI::EventReturn SaveSlotView::OnLoadState(UI::EventParams &e) {
@@ -346,8 +390,19 @@ void GamePauseScreen::CreateViews() {
 	}
 	leftColumnItems->Add(new Spacer(0.0));
 
+	LinearLayout *buttonRow = leftColumnItems->Add(new LinearLayout(ORIENT_HORIZONTAL));
+	if (g_Config.bEnableStateUndo) {
+		UI::Choice *loadUndoButton = buttonRow->Add(new Choice(pa->T("Undo last load")));
+		loadUndoButton->SetEnabled(SaveState::HasUndoLoad(gamePath_));
+		loadUndoButton->OnClick.Handle(this, &GamePauseScreen::OnLoadUndo);
+
+		UI::Choice *saveUndoButton = buttonRow->Add(new Choice(pa->T("Undo last save")));
+		saveUndoButton->SetEnabled(SaveState::HasUndoLastSave(gamePath_));
+		saveUndoButton->OnClick.Handle(this, &GamePauseScreen::OnLastSaveUndo);
+	}
+
 	if (g_Config.iRewindFlipFrequency > 0) {
-		UI::Choice *rewindButton = leftColumnItems->Add(new Choice(pa->T("Rewind")));
+		UI::Choice *rewindButton = buttonRow->Add(new Choice(pa->T("Rewind")));
 		rewindButton->SetEnabled(SaveState::CanRewind());
 		rewindButton->OnClick.Handle(this, &GamePauseScreen::OnRewind);
 	}
@@ -406,11 +461,6 @@ UI::EventReturn GamePauseScreen::OnState(UI::EventParams &e) {
 void GamePauseScreen::dialogFinished(const Screen *dialog, DialogResult dr) {
 	std::string tag = dialog->tag();
 	if (tag == "screenshot" && dr == DR_OK) {
-		ScreenshotViewScreen *s = (ScreenshotViewScreen *)dialog;
-		int slot = s->GetSlot();
-		g_Config.iCurrentStateSlot = slot;
-		SaveState::LoadSlot(gamePath_, slot, &AfterSaveStateAction);
-
 		finishNextFrame_ = true;
 	} else {
 		// There may have been changes to our savestates, so let's recreate.
@@ -423,10 +473,10 @@ UI::EventReturn GamePauseScreen::OnScreenshotClicked(UI::EventParams &e) {
 	int slot = v->GetSlot();
 	g_Config.iCurrentStateSlot = v->GetSlot();
 	if (SaveState::HasSaveInSlot(gamePath_, slot)) {
-		std::string fn = v->GetScreenshotFilename();
+		Path fn = v->GetScreenshotFilename();
 		std::string title = v->GetScreenshotTitle();
 		auto pa = GetI18NCategory("Pause");
-		Screen *screen = new ScreenshotViewScreen(fn, title, v->GetSlot(), pa);
+		Screen *screen = new ScreenshotViewScreen(fn, title, v->GetSlot(), pa, gamePath_);
 		screenManager()->push(screen);
 	}
 	return UI::EVENT_DONE;
@@ -450,6 +500,20 @@ UI::EventReturn GamePauseScreen::OnRewind(UI::EventParams &e) {
 	SaveState::Rewind(&AfterSaveStateAction);
 
 	TriggerFinish(DR_CANCEL);
+	return UI::EVENT_DONE;
+}
+
+UI::EventReturn GamePauseScreen::OnLoadUndo(UI::EventParams &e) {
+	SaveState::UndoLoad(gamePath_, &AfterSaveStateAction);
+
+	TriggerFinish(DR_CANCEL);
+	return UI::EVENT_DONE;
+}
+
+UI::EventReturn GamePauseScreen::OnLastSaveUndo(UI::EventParams &e) {
+	SaveState::UndoLastSave(gamePath_);
+
+	RecreateViews();
 	return UI::EVENT_DONE;
 }
 

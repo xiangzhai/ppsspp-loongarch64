@@ -14,8 +14,10 @@ dependencies {
 	def appcompat_version = "1.2.0"
 
 	implementation "androidx.appcompat:appcompat:$appcompat_version"
-	// For loading and tinting drawables on older versions of the platform
-	implementation "androidx.appcompat:appcompat-resources:$appcompat_version"
+
+	// Convenient wrapper around DocumentContract. Might look into writing our own
+	// to see if there's some performance to squeeze at some point, but doubt it.
+	implementation "androidx.documentfile:documentfile:1.0.1"
 }
 
 android {
@@ -42,8 +44,8 @@ android {
 			}
 		}
 	}
-	compileSdkVersion 29
-	buildToolsVersion '29.0.3'
+	compileSdkVersion 30
+	buildToolsVersion '30.0.0'
 	defaultConfig {
 		applicationId 'org.ppsspp.ppsspp'
 		if (androidGitVersion.name() != "unknown" && androidGitVersion.code() >= 14000000) {
@@ -59,7 +61,7 @@ android {
 		new File("versioncode.txt").write(androidGitVersion.code().toString())
 
 		minSdkVersion 9
-		targetSdkVersion 29
+		targetSdkVersion 30
 		if (project.hasProperty("ANDROID_VERSION_CODE") && project.hasProperty("ANDROID_VERSION_NAME")) {
 			versionCode ANDROID_VERSION_CODE
 			versionName ANDROID_VERSION_NAME

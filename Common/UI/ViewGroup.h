@@ -63,9 +63,11 @@ public:
 
 	// Assumes that layout has taken place.
 	NeighborResult FindNeighbor(View *view, FocusDirection direction, NeighborResult best);
+	virtual NeighborResult FindScrollNeighbor(View *view, const Point &target, FocusDirection direction, NeighborResult best);
 
-	virtual bool CanBeFocused() const override { return false; }
-	virtual bool IsViewGroup() const override { return true; }
+	bool CanBeFocused() const override { return false; }
+	bool IsViewGroup() const override { return true; }
+	bool ContainsSubview(const View *view) const override;
 
 	virtual void SetBG(const Drawable &bg) { bg_ = bg; }
 
@@ -112,8 +114,9 @@ public:
 		: LayoutParams(w, h, LP_ANCHOR), left(l), top(t), right(r), bottom(b), center(c) {
 
 	}
+	// There's a small hack here to make this behave more intuitively - AnchorLayout ordinarily ignores FILL_PARENT.
 	AnchorLayoutParams(Size w, Size h, bool c = false)
-		: LayoutParams(w, h, LP_ANCHOR), left(0), top(0), right(NONE), bottom(NONE), center(c) {
+		: LayoutParams(w, h, LP_ANCHOR), left(0), top(0), right(w == FILL_PARENT ? 0 : NONE), bottom(h == FILL_PARENT ? 0 : NONE), center(c) {
 	}
 	AnchorLayoutParams(float l, float t, float r, float b, bool c = false)
 		: LayoutParams(WRAP_CONTENT, WRAP_CONTENT, LP_ANCHOR), left(l), top(t), right(r), bottom(b), center(c) {}
@@ -266,6 +269,8 @@ public:
 	bool SubviewFocused(View *view) override;
 	void PersistData(PersistStatus status, std::string anonId, PersistMap &storage) override;
 	void SetVisibility(Visibility visibility) override;
+
+	NeighborResult FindScrollNeighbor(View *view, const Point &target, FocusDirection direction, NeighborResult best) override;
 
 	// Quick hack to prevent scrolling to top in some lists
 	void SetScrollToTop(bool t) { scrollToTopOnSizeChange_ = t; }

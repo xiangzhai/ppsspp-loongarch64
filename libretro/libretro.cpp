@@ -6,6 +6,7 @@
 #include <vector>
 #include <cstdlib>
 
+#include "Common/CPUDetect.h"
 #include "Common/Log.h"
 #include "Common/LogManager.h"
 #include "Common/System/Display.h"
@@ -17,8 +18,10 @@
 #include "Common/ConsoleListener.h"
 #include "Common/Input/InputState.h"
 #include "Common/Thread/ThreadUtil.h"
+#include "Common/Thread/ThreadManager.h"
 #include "Common/File/VFS/VFS.h"
 #include "Common/File/VFS/AssetReader.h"
+#include "Common/Data/Text/I18n.h"
 
 #include "Core/Config.h"
 #include "Core/ConfigValues.h"
@@ -249,7 +252,7 @@ void retro_set_environment(retro_environment_t cb)
    vars.push_back(ppsspp_software_skinning.GetOptions());
    vars.push_back(ppsspp_lazy_texture_caching.GetOptions());
    vars.push_back(ppsspp_retain_changed_textures.GetOptions());
-   vars.push_back(ppsspp_force_lag_sync.GetOptions());   
+   vars.push_back(ppsspp_force_lag_sync.GetOptions());
    vars.push_back(ppsspp_disable_slow_framebuffer_effects.GetOptions());
    vars.push_back(ppsspp_lower_resolution_for_effects.GetOptions());
    vars.push_back(ppsspp_texture_scaling_level.GetOptions());
@@ -304,12 +307,44 @@ static int get_language_auto(void)
    }
 }
 
+static std::string map_psp_language_to_i18n_locale(int val)
+{
+   switch (val)
+   {
+      default:
+      case PSP_SYSTEMPARAM_LANGUAGE_ENGLISH:
+         return "en_US";
+      case PSP_SYSTEMPARAM_LANGUAGE_JAPANESE:
+         return "ja_JP";
+      case PSP_SYSTEMPARAM_LANGUAGE_FRENCH:
+         return "fr_FR";
+      case PSP_SYSTEMPARAM_LANGUAGE_GERMAN:
+         return "de_DE";
+      case PSP_SYSTEMPARAM_LANGUAGE_SPANISH:
+         return "es_ES";
+      case PSP_SYSTEMPARAM_LANGUAGE_ITALIAN:
+         return "it_IT";
+      case PSP_SYSTEMPARAM_LANGUAGE_PORTUGUESE:
+         return "pt_PT";
+      case PSP_SYSTEMPARAM_LANGUAGE_RUSSIAN:
+         return "ru_RU";
+      case PSP_SYSTEMPARAM_LANGUAGE_DUTCH:
+         return "nl_NL";
+      case PSP_SYSTEMPARAM_LANGUAGE_KOREAN:
+         return "ko_KR";
+      case PSP_SYSTEMPARAM_LANGUAGE_CHINESE_TRADITIONAL:
+         return "zh_TW";
+      case PSP_SYSTEMPARAM_LANGUAGE_CHINESE_SIMPLIFIED:
+         return "zh_CN";
+   }
+}
+
 static void check_variables(CoreParameter &coreParam)
 {
    bool updated = false;
 
-   if (     coreState != CORE_POWERUP 
-         && environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) 
+   if (     coreState != CORE_POWERUP
+         && environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated)
          && !updated)
       return;
 
@@ -344,6 +379,9 @@ static void check_variables(CoreParameter &coreParam)
    ppsspp_language.Update(&g_Config.iLanguage);
    if (g_Config.iLanguage < 0)
       g_Config.iLanguage = get_language_auto();
+
+   g_Config.sLanguageIni = map_psp_language_to_i18n_locale(g_Config.iLanguage);
+   i18nrepo.LoadIni(g_Config.sLanguageIni);
 
    if (!PSP_IsInited() && ppsspp_internal_resolution.Update(&g_Config.iInternalResolution))
    {
@@ -380,9 +418,10 @@ void retro_init(void)
 
    g_Config.bEnableLogging = true;
    // libretro does its own timing, so this should stay CONTINUOUS.
-   g_Config.iUnthrottleMode = (int)UnthrottleMode::CONTINUOUS;
+   g_Config.iFastForwardMode = (int)FastForwardMode::CONTINUOUS;
    g_Config.bMemStickInserted = true;
-   g_Config.iGlobalVolume = VOLUME_MAX - 1;
+   g_Config.iGlobalVolume = VOLUME_FULL - 1;
+   g_Config.iReverbVolume = VOLUME_FULL;
    g_Config.iAltSpeedVolume = -1;
    g_Config.bEnableSound = true;
    g_Config.iCwCheatRefreshRate = 60;
@@ -394,11 +433,14 @@ void retro_init(void)
    g_Config.bFragmentTestCache = true;
    g_Config.bSavedataUpgrade= true;
    g_Config.bSeparateSASThread = true;
+   g_Config.sMACAddress = "12:34:56:78:9A:BC";
 
    g_Config.iFirmwareVersion = PSP_DEFAULT_FIRMWARE;
    g_Config.iPSPModel = PSP_MODEL_SLIM;
 
    LogManager::Init(&g_Config.bEnableLogging);
+
+   g_threadManager.Init(cpu_info.num_cores, cpu_info.logical_cpu_count);
 
    host = new LibretroHost;
 
@@ -487,7 +529,7 @@ namespace Libretro
 
    static void EmuThreadFunc()
    {
-      setCurrentThreadName("Emu");
+      SetCurrentThreadName("Emu");
 
       for (;;)
       {
@@ -559,8 +601,8 @@ namespace Libretro
 
 bool retro_load_game(const struct retro_game_info *game)
 {
-   static std::string retro_base_dir;
-   static std::string retro_save_dir;
+   static Path retro_base_dir;
+   static Path retro_save_dir;
    std::string error_string;
    enum retro_pixel_format fmt          = RETRO_PIXEL_FORMAT_XRGB8888;
    const char *nickname                 = NULL;
@@ -597,46 +639,33 @@ bool retro_load_game(const struct retro_game_info *game)
       g_Config.sNickName = std::string(nickname);
 
 
-   if (environ_cb(RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY, &dir_ptr) 
+   if (environ_cb(RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY, &dir_ptr)
          && dir_ptr)
    {
-      size_t last;
-      retro_base_dir = dir_ptr;
-      // Make sure that we don't have any lingering slashes, etc, as they break Windows.
-      last = retro_base_dir.find_last_not_of(DIR_SEP_CHRS);
-      if (last != std::string::npos)
-         last++;
-
-      retro_base_dir = retro_base_dir.substr(0, last) + DIR_SEP;
+      retro_base_dir = Path(dir_ptr);
    }
 
-   if (environ_cb(RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY, &dir_ptr) 
+   if (environ_cb(RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY, &dir_ptr)
          && dir_ptr)
    {
-      retro_save_dir = dir_ptr;
-      // Make sure that we don't have any lingering slashes, etc, as they break Windows.
-      size_t last = retro_save_dir.find_last_not_of(DIR_SEP_CHRS);
-      if (last != std::string::npos)
-         last++;
-
-      retro_save_dir = retro_save_dir.substr(0, last) + DIR_SEP;
+      retro_save_dir = Path(dir_ptr);
    }
 
    if (retro_base_dir.empty())
-      retro_base_dir = File::GetDir(game->path);
+      retro_base_dir = Path(game->path).NavigateUp();
 
-   retro_base_dir            += "PPSSPP" DIR_SEP;
+   retro_base_dir /= "PPSSPP";
 
    if (retro_save_dir.empty())
-      retro_save_dir = File::GetDir(game->path);
+      retro_save_dir = Path(game->path).NavigateUp();
 
-   g_Config.currentDirectory      = retro_base_dir;
-   g_Config.externalDirectory     = retro_base_dir;
+   g_Config.currentDirectory = retro_base_dir;
+   g_Config.defaultCurrentDirectory = retro_base_dir;
    g_Config.memStickDirectory     = retro_save_dir;
-   g_Config.flash0Directory       = retro_base_dir + "flash0" DIR_SEP;
+   g_Config.flash0Directory       = retro_base_dir / "flash0";
    g_Config.internalDataDirectory = retro_base_dir;
 
-   VFSRegister("", new DirectoryAssetReader(retro_base_dir.c_str()));
+   VFSRegister("", new DirectoryAssetReader(retro_base_dir));
 
    coreState = CORE_POWERUP;
    ctx       = LibretroGraphicsContext::CreateGraphicsContext();
@@ -649,12 +678,12 @@ bool retro_load_game(const struct retro_game_info *game)
 
    CoreParameter coreParam   = {};
    coreParam.enableSound     = true;
-   coreParam.fileToStart     = std::string(game->path);
-   coreParam.mountIso        = "";
+   coreParam.fileToStart     = Path(std::string(game->path));
+   coreParam.mountIso.clear();
    coreParam.startBreak      = false;
    coreParam.printfEmuLog    = true;
    coreParam.headLess        = true;
-   coreParam.unthrottle      = true;
+   coreParam.fastForward      = true;
    coreParam.graphicsContext = ctx;
    coreParam.gpuCore         = ctx->GetGPUCore();
    coreParam.cpuCore         = CPUCore::JIT;
@@ -684,6 +713,8 @@ void retro_unload_game(void)
 	delete ctx;
 	ctx = nullptr;
 	PSP_CoreParameter().graphicsContext = nullptr;
+
+   g_threadManager.Teardown();
 }
 
 void retro_reset(void)
@@ -759,10 +790,12 @@ static void retro_input(void)
       }
    }
 
-   __CtrlSetAnalogX(input_state_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X) / 32768.0f, CTRL_STICK_LEFT);
-   __CtrlSetAnalogY(input_state_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y) / -32768.0f, CTRL_STICK_LEFT);
-   __CtrlSetAnalogX(input_state_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_X) / 32768.0f, CTRL_STICK_RIGHT);
-   __CtrlSetAnalogY(input_state_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_Y) / -32768.0f, CTRL_STICK_RIGHT);
+   float x_left = input_state_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X) / 32767.0f;
+   float y_left = input_state_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y) / -32767.0f;
+   float x_right = input_state_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_X) / 32767.0f;
+   float y_right = input_state_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_Y) / -32767.0f;
+   __CtrlSetAnalogXY(CTRL_STICK_LEFT, x_left, y_left);
+   __CtrlSetAnalogXY(CTRL_STICK_RIGHT, x_right, y_right);
 }
 
 void retro_run(void)
@@ -795,7 +828,7 @@ void retro_run(void)
 
    if (useEmuThread)
    {
-      if(   emuThreadState == EmuThreadState::PAUSED || 
+      if(   emuThreadState == EmuThreadState::PAUSED ||
             emuThreadState == EmuThreadState::PAUSE_REQUESTED)
       {
          ctx->SwapBuffers();
@@ -828,26 +861,35 @@ namespace SaveState
 
 size_t retro_serialize_size(void)
 {
+   if(!gpu) { // The HW renderer isn't ready on first pass.
+      return 134217728; // 128MB ought to be enough for anybody.
+   }
+
    SaveState::SaveStart state;
    // TODO: Libretro API extension to use the savestate queue
    if (useEmuThread)
       EmuThreadPause();
 
-   return (CChunkFileReader::MeasurePtr(state) + 0x800000) 
+   return (CChunkFileReader::MeasurePtr(state) + 0x800000)
       & ~0x7FFFFF; // We don't unpause intentionally
 }
 
 bool retro_serialize(void *data, size_t size)
 {
+   if(!gpu) { // The HW renderer isn't ready on first pass.
+      return false;
+   }
+
    bool retVal;
    SaveState::SaveStart state;
    // TODO: Libretro API extension to use the savestate queue
    if (useEmuThread)
       EmuThreadPause(); // Does nothing if already paused
 
-   assert(CChunkFileReader::MeasurePtr(state) <= size);
-   retVal = CChunkFileReader::SavePtr((u8 *)data, state) 
-      == CChunkFileReader::ERROR_NONE;
+   size_t measured = CChunkFileReader::MeasurePtr(state);
+   assert(measured <= size);
+   auto err = CChunkFileReader::SavePtr((u8 *)data, state, measured);
+   retVal = err == CChunkFileReader::ERROR_NONE;
 
    if (useEmuThread)
    {
@@ -867,7 +909,7 @@ bool retro_unserialize(const void *data, size_t size)
       EmuThreadPause(); // Does nothing if already paused
 
    std::string errorString;
-   retVal = CChunkFileReader::LoadPtr((u8 *)data, state, &errorString) 
+   retVal = CChunkFileReader::LoadPtr((u8 *)data, state, &errorString)
       == CChunkFileReader::ERROR_NONE;
 
    if (useEmuThread)

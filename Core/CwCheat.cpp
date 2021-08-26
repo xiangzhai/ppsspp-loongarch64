@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
+#include <cstdio>
 #include "Common/Data/Text/I18n.h"
 #include "Common/StringUtils.h"
 #include "Common/Serialize/Serializer.h"
@@ -43,14 +44,13 @@ static inline std::string TrimString(const std::string &s) {
 
 class CheatFileParser {
 public:
-	CheatFileParser(const std::string &filename, const std::string &gameID = "") {
-#if defined(_WIN32) && !defined(__MINGW32__)
-		file_.open(ConvertUTF8ToWString(filename));
-#else
-		file_.open(filename.c_str());
-#endif
-
+	CheatFileParser(const Path &filename, const std::string &gameID = "") {
+		fp_ = File::OpenCFile(filename, "rt");
 		validGameID_ = ReplaceAll(gameID, "-", "");
+	}
+	~CheatFileParser() {
+		if (fp_)
+			fclose(fp_);
 	}
 
 	bool Parse();
@@ -75,7 +75,7 @@ protected:
 	void ParseDataLine(const std::string &line, CheatCodeFormat format);
 	bool ValidateGameID(const std::string &gameID);
 
-	std::ifstream file_;
+	FILE *fp_ = nullptr;
 	std::string validGameID_;
 
 	int line_ = 0;
@@ -92,10 +92,16 @@ protected:
 };
 
 bool CheatFileParser::Parse() {
-	for (line_ = 1; file_ && !file_.eof(); ++line_) {
-		std::string line;
-		getline(file_, line, '\n');
-		line = TrimString(line);
+	for (line_ = 1; fp_ && !feof(fp_); ++line_) {
+		char temp[2048];
+		char *tempLine = fgets(temp, sizeof(temp), fp_);
+		if (!tempLine)
+			continue;
+
+		// Detect UTF-8 BOM sequence, and ignore it.
+		if (line_ == 1 && memcmp(tempLine, "\xEF\xBB\xBF", 3) == 0)
+			tempLine += 3;
+		std::string line = TrimString(tempLine);
 
 		// Minimum length 5 is shortest possible _ lines name of the game "_G N+"
 		// and a minimum of 1 displayable character in cheat name string "_C0 1"
@@ -335,10 +341,14 @@ void hleCheat(u64 userdata, int cyclesLate) {
 		} else if (gameTitle == "ULES00033" || gameTitle == "ULES00034" || gameTitle == "ULES00035") {  // euro, also 34 and 35
 			cheatEngine->InvalidateICache(0x088655D8, 72);
 			cheatEngine->InvalidateICache(0x08865668, 4);
-		} else if (gameTitle == "ULUS10138") {  // MTX MotoTrax. No hack for ULES00581 known.
+		} else if (gameTitle == "ULUS10138") {  // MTX MotoTrax US
 			cheatEngine->InvalidateICache(0x0886DCC0, 72);
 			cheatEngine->InvalidateICache(0x0886DC20, 4);
 			cheatEngine->InvalidateICache(0x0886DD40, 4);
+		} else if (gameTitle == "ULES00581") {  // MTX MotoTrax EU (ported from US cwcheat codes)
+			cheatEngine->InvalidateICache(0x0886E1D8, 72);
+			cheatEngine->InvalidateICache(0x0886E138, 4);
+			cheatEngine->InvalidateICache(0x0886E258, 4);
 		}
 	}
 
@@ -353,7 +363,7 @@ void hleCheat(u64 userdata, int cyclesLate) {
 }
 
 CWCheatEngine::CWCheatEngine(const std::string &gameID) : gameID_(gameID) {
-	filename_ = GetSysDirectory(DIRECTORY_CHEATS) + gameID_ + ".ini";
+	filename_ = GetSysDirectory(DIRECTORY_CHEATS) / (gameID_ + ".ini");
 }
 
 void CWCheatEngine::CreateCheatFile() {
@@ -372,7 +382,7 @@ void CWCheatEngine::CreateCheatFile() {
 	}
 }
 
-std::string CWCheatEngine::CheatFilename() {
+Path CWCheatEngine::CheatFilename() {
 	return filename_;
 }
 

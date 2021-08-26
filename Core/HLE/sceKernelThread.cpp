@@ -1344,7 +1344,7 @@ int __KernelGetThreadExitStatus(SceUID threadID) {
 	if (t->nt.status == THREADSTATUS_DORMANT) {
 		return hleLogSuccessI(SCEKERNEL, t->nt.exitStatus);
 	}
-	return hleLogDebug(SCEKERNEL, SCE_KERNEL_ERROR_NOT_DORMANT, "not dormant");
+	return hleLogVerbose(SCEKERNEL, SCE_KERNEL_ERROR_NOT_DORMANT, "not dormant");
 }
 
 int sceKernelGetThreadExitStatus(SceUID threadID) {
@@ -2063,7 +2063,8 @@ int __KernelStartThread(SceUID threadToStartID, int argSize, u32 argBlockPtr, bo
 			Core_ExecException(startThread->context.pc, currentMIPS->pc, ExecExceptionType::THREAD);
 		}
 		__KernelChangeReadyState(cur, currentThread, true);
-		hleReSchedule("thread started");
+		if (__InterruptsEnabled())
+			hleReSchedule("thread started");
 	}
 
 	// Starting a thread automatically resumes the dispatch thread if the new thread has worse priority.

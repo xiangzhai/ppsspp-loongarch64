@@ -59,6 +59,8 @@ if(CMAKE_SYSTEM_PROCESSOR)
 	elseif(${CMAKE_SYSTEM_PROCESSOR} MATCHES "^loongarch64")
 		set(LOONGARCH64_DEVICE ON)
 	        add_compile_options(-mlsx -mlasx -ftree-vectorize)
+	elseif(${CMAKE_SYSTEM_PROCESSOR} MATCHES "^riscv64")
+		set(RISCV64_DEVICE ON)
 	else()
 		message("Unknown CMAKE_SYSTEM_PROCESSOR: ${CMAKE_SYSTEM_PROCESSOR}")
 	endif()
@@ -116,6 +118,7 @@ endif()
 option(ARMV7 "Set to ON if targeting an ARMv7 processor" ${ARMV7_DEVICE})
 option(ARM "Set to ON if targeting an ARM processor" ${ARM_DEVICE})
 option(MIPS "Set to ON if targeting a MIPS processor" ${MIPS_DEVICE})
+option(RISCV64 "Set to ON if targeting a RISCV64 processor" ${RISCV64_DEVICE})
 option(X86 "Set to ON if targeting an X86 processor" ${X86_DEVICE})
 option(X86_64 "Set to ON if targeting an X86_64 processor" ${X86_64_DEVICE})
 # :: Environments
@@ -124,6 +127,7 @@ option(USING_FBDEV "Set to ON if target environment uses fbdev (eg. Pandora)" ${
 option(USING_GLES2 "Set to ON if target device uses OpenGL ES 2.0" ${USING_GLES2})
 option(USING_X11_VULKAN "Set to OFF if target environment doesn't use X11 for Vulkan" ON)
 option(USE_WAYLAND_WSI "Enable or disable Wayland WSI support for Vulkan" ${USE_WAYLAND_WSI})
+option(USE_VULKAN_DISPLAY_KHR "Enable or disable full screen display of Vulkan" ${USE_VULKAN_DISPLAY_KHR})
 # :: Frontends
 option(USING_QT_UI "Set to ON if you wish to use the Qt frontend wrapper" ${USING_QT_UI})
 option(MOBILE_DEVICE "Set to ON when targeting a mobile device" ${MOBILE_DEVICE})
@@ -148,6 +152,7 @@ if(UNIX AND NOT (APPLE OR ANDROID) AND VULKAN)
 	else()
 		message("NOT using X11 for Vulkan")
 	endif()
+
 	# add_definitions(-DVK_USE_PLATFORM_XCB_KHR)
 	if(USE_WAYLAND_WSI)
 		find_package(Wayland)
@@ -157,6 +162,11 @@ if(UNIX AND NOT (APPLE OR ANDROID) AND VULKAN)
 			include_directories(${WAYLAND_INCLUDE_DIR})
 			add_definitions(-DVK_USE_PLATFORM_WAYLAND_KHR)
 		endif()
+	endif()
+
+	if(USE_VULKAN_DISPLAY_KHR)
+		message(STATUS "Using experimental full-screen display for Vulkan.")
+		add_definitions(-DVK_USE_PLATFORM_DISPLAY_KHR)
 	endif()
 endif()
 
@@ -181,7 +191,7 @@ else()
 	set(CoreLinkType STATIC)
 endif()
 
-# Work around for some misfeature of the current glslang build system 
+# Work around for some misfeature of the current glslang build system
 include_directories(ext/glslang)
 
 # Not sure if this is the best way - what about system glew?
@@ -251,6 +261,9 @@ endif()
 if(MIPS)
 	message("Generating for MIPS, ${CMAKE_BUILD_TYPE}")
 endif()
+if(RISCV64)
+	message("Generating for RISCV64, ${CMAKE_BUILD_TYPE}")
+endif()
 if(X86)
 	message("Generating for x86, ${CMAKE_BUILD_TYPE}")
 endif()
@@ -273,6 +286,9 @@ foreach (LANGUAGE C CXX)
 endforeach()
 
 if(NOT MSVC)
+	# NEON optimizations in libpng17 seem to cause PNG load errors, see #14485.
+	add_definitions(-DPNG_ARM_NEON_OPT=0)
+
 	if(ANDROID)
 		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=gnu++11")
 	endif()
@@ -403,7 +419,7 @@ set(CommonARM
 	Common/ArmCPUDetect.cpp
 	Common/ArmEmitter.h
 	Common/ArmEmitter.cpp
-	Common/ColorConvNEON.cpp
+	Common/Data/Convert/ColorConvNEON.cpp
 )
 source_group(ARM FILES ${CommonARM})
 
@@ -422,6 +438,13 @@ set(CommonMIPS
 	Common/MipsEmitter.h
 )
 source_group(MIPS FILES ${CommonMIPS})
+
+set(CommonRISCV64
+	Common/RiscVCPUDetect.cpp
+	Core/MIPS/fake/FakeJit.cpp
+	Core/MIPS/fake/FakeJit.h
+)
+source_group(RISCV64 FILES ${CommonRISCV64})
 
 if(WIN32)
 	set(CommonD3D
@@ -442,6 +465,7 @@ add_library(Common STATIC
 	${CommonARM}
 	${CommonARM64}
 	${CommonMIPS}
+	${CommonRISCV64}
 	${CommonD3D}
 	Common/Serialize/Serializer.cpp
 	Common/Serialize/Serializer.h
@@ -463,6 +487,8 @@ add_library(Common STATIC
 	Common/Data/Collections/ThreadSafeList.h
 	Common/Data/Color/RGBAUtil.cpp
 	Common/Data/Color/RGBAUtil.h
+	Common/Data/Convert/ColorConv.cpp
+	Common/Data/Convert/ColorConv.h
 	Common/Data/Convert/SmallDataConvert.cpp
 	Common/Data/Convert/SmallDataConvert.h
 	Common/Data/Encoding/Base64.cpp
@@ -500,8 +526,12 @@ add_library(Common STATIC
 	Common/File/VFS/VFS.cpp
 	Common/File/VFS/AssetReader.cpp
 	Common/File/VFS/AssetReader.h
+	Common/File/AndroidStorage.h
+	Common/File/AndroidStorage.cpp
 	Common/File/DiskFree.h
 	Common/File/DiskFree.cpp
+	Common/File/Path.h
+	Common/File/Path.cpp
 	Common/File/PathBrowser.h
 	Common/File/PathBrowser.cpp
 	Common/File/FileUtil.cpp
@@ -576,6 +606,8 @@ add_library(Common STATIC
 	Common/Net/HTTPHeaders.h
 	Common/Net/HTTPServer.cpp
 	Common/Net/HTTPServer.h
+	Common/Net/NetBuffer.cpp
+	Common/Net/NetBuffer.h
 	Common/Net/Resolve.cpp
 	Common/Net/Resolve.h
 	Common/Net/Sinks.cpp
@@ -600,14 +632,14 @@ add_library(Common STATIC
 	Common/Render/Text/draw_text_uwp.h
 	Common/System/Display.cpp
 	Common/System/Display.h
-	Common/Thread/Executor.cpp
-	Common/Thread/Executor.h
-	Common/Thread/PrioritizedWorkQueue.cpp
-	Common/Thread/PrioritizedWorkQueue.h
+	Common/Thread/Channel.h
+	Common/Thread/ParallelLoop.cpp
+	Common/Thread/ParallelLoop.h
+	Common/Thread/Promise.h
 	Common/Thread/ThreadUtil.cpp
 	Common/Thread/ThreadUtil.h
-	Common/Thread/ThreadPool.cpp
-	Common/Thread/ThreadPool.h
+	Common/Thread/ThreadManager.cpp
+	Common/Thread/ThreadManager.h
 	Common/UI/Root.cpp
 	Common/UI/Root.h
 	Common/UI/Screen.cpp
@@ -629,8 +661,6 @@ add_library(Common STATIC
 	Common/Buffer.h
 	Common/Buffer.cpp
 	Common/CodeBlock.h
-	Common/ColorConv.cpp
-	Common/ColorConv.h
 	Common/Common.h
 	Common/CommonFuncs.h
 	Common/CommonTypes.h
@@ -645,6 +675,8 @@ add_library(Common STATIC
 	Common/Log.cpp
 	Common/LogManager.cpp
 	Common/LogManager.h
+	Common/LogReporting.cpp
+	Common/LogReporting.h
 	Common/MakeUnique.h
 	Common/MemArenaAndroid.cpp
 	Common/MemArenaDarwin.cpp
@@ -704,6 +736,8 @@ if(USE_FFMPEG)
 					set(PLATFORM_ARCH "linux/arm")
 				elseif(MIPS)
 					set(PLATFORM_ARCH "linux/mips32")
+				elseif(RISCV64)
+					set(PLATFORM_ARCH "linux/riscv64")
 				elseif(CMAKE_SIZEOF_VOID_P EQUAL 8)
 					set(PLATFORM_ARCH "linux/x86_64")
 				elseif(X86)
@@ -787,62 +821,135 @@ if(LIBZIP_FOUND AND USE_SYSTEM_LIBZIP)
 	add_definitions(-DSHARED_LIBZIP)
 else()
 	add_library(libzip STATIC
-		ext/libzip/zip.h
-		ext/libzip/mkstemp.c
 		ext/libzip/zip_add.c
 		ext/libzip/zip_add_dir.c
+		ext/libzip/zip_add_entry.c
+		ext/libzip/zip_algorithm_deflate.c
+		ext/libzip/zip_buffer.c
 		ext/libzip/zip_close.c
 		ext/libzip/zip_delete.c
+		ext/libzip/zip_dir_add.c
 		ext/libzip/zip_dirent.c
-		ext/libzip/zip_entry_free.c
-		ext/libzip/zip_entry_new.c
-		ext/libzip/zip_err_str.c
+		ext/libzip/zip_discard.c
+		ext/libzip/zip_entry.c
 		ext/libzip/zip_error.c
 		ext/libzip/zip_error_clear.c
 		ext/libzip/zip_error_get.c
 		ext/libzip/zip_error_get_sys_type.c
 		ext/libzip/zip_error_strerror.c
 		ext/libzip/zip_error_to_str.c
+		ext/libzip/zip_extra_field.c
+		ext/libzip/zip_extra_field_api.c
 		ext/libzip/zip_fclose.c
+		ext/libzip/zip_fdopen.c
+		ext/libzip/zip_file_add.c
 		ext/libzip/zip_file_error_clear.c
 		ext/libzip/zip_file_error_get.c
+		ext/libzip/zip_file_get_comment.c
+		ext/libzip/zip_file_get_external_attributes.c
 		ext/libzip/zip_file_get_offset.c
+		ext/libzip/zip_file_rename.c
+		ext/libzip/zip_file_replace.c
+		ext/libzip/zip_file_set_comment.c
+		ext/libzip/zip_file_set_encryption.c
+		ext/libzip/zip_file_set_external_attributes.c
+		ext/libzip/zip_file_set_mtime.c
 		ext/libzip/zip_file_strerror.c
-		ext/libzip/zip_filerange_crc.c
 		ext/libzip/zip_fopen.c
+		ext/libzip/zip_fopen_encrypted.c
 		ext/libzip/zip_fopen_index.c
+		ext/libzip/zip_fopen_index_encrypted.c
 		ext/libzip/zip_fread.c
-		ext/libzip/zip_free.c
+		ext/libzip/zip_fseek.c
+		ext/libzip/zip_ftell.c
 		ext/libzip/zip_get_archive_comment.c
 		ext/libzip/zip_get_archive_flag.c
+		ext/libzip/zip_get_encryption_implementation.c
 		ext/libzip/zip_get_file_comment.c
 		ext/libzip/zip_get_name.c
+		ext/libzip/zip_get_num_entries.c
 		ext/libzip/zip_get_num_files.c
+		ext/libzip/zip_hash.c
+		ext/libzip/zip_io_util.c
+		ext/libzip/zip_libzip_version.c
 		ext/libzip/zip_memdup.c
 		ext/libzip/zip_name_locate.c
 		ext/libzip/zip_new.c
 		ext/libzip/zip_open.c
+		ext/libzip/zip_pkware.c
+		ext/libzip/zip_progress.c
 		ext/libzip/zip_rename.c
 		ext/libzip/zip_replace.c
 		ext/libzip/zip_set_archive_comment.c
 		ext/libzip/zip_set_archive_flag.c
+		ext/libzip/zip_set_default_password.c
 		ext/libzip/zip_set_file_comment.c
+		ext/libzip/zip_set_file_compression.c
 		ext/libzip/zip_set_name.c
+		ext/libzip/zip_source_accept_empty.c
+		ext/libzip/zip_source_begin_write.c
+		ext/libzip/zip_source_begin_write_cloning.c
 		ext/libzip/zip_source_buffer.c
-		ext/libzip/zip_source_file.c
-		ext/libzip/zip_source_filep.c
+		ext/libzip/zip_source_call.c
+		ext/libzip/zip_source_close.c
+		ext/libzip/zip_source_commit_write.c
+		ext/libzip/zip_source_compress.c
+		ext/libzip/zip_source_crc.c
+		ext/libzip/zip_source_error.c
+		ext/libzip/zip_source_file_common.c
+		ext/libzip/zip_source_file_stdio.c
 		ext/libzip/zip_source_free.c
 		ext/libzip/zip_source_function.c
+		ext/libzip/zip_source_get_file_attributes.c
+		ext/libzip/zip_source_is_deleted.c
+		ext/libzip/zip_source_layered.c
+		ext/libzip/zip_source_open.c
+		ext/libzip/zip_source_pkware_decode.c
+		ext/libzip/zip_source_pkware_encode.c
+		ext/libzip/zip_source_read.c
+		ext/libzip/zip_source_remove.c
+		ext/libzip/zip_source_rollback_write.c
+		ext/libzip/zip_source_seek.c
+		ext/libzip/zip_source_seek_write.c
+		ext/libzip/zip_source_stat.c
+		ext/libzip/zip_source_supports.c
+		ext/libzip/zip_source_tell.c
+		ext/libzip/zip_source_tell_write.c
+		ext/libzip/zip_source_window.c
+		ext/libzip/zip_source_write.c
 		ext/libzip/zip_source_zip.c
+		ext/libzip/zip_source_zip_new.c
 		ext/libzip/zip_stat.c
 		ext/libzip/zip_stat_index.c
 		ext/libzip/zip_stat_init.c
 		ext/libzip/zip_strerror.c
+		ext/libzip/zip_string.c
 		ext/libzip/zip_unchange.c
 		ext/libzip/zip_unchange_all.c
 		ext/libzip/zip_unchange_archive.c
 		ext/libzip/zip_unchange_data.c
+		ext/libzip/zip_utf-8.c
+		ext/libzip/zip_err_str.c
 	)
+	if(WIN32)
+		target_sources(libzip PRIVATE
+			ext/libzip/zip_source_file_win32.c
+			ext/libzip/zip_source_file_win32_named.c
+			ext/libzip/zip_source_file_win32_utf16.c
+			ext/libzip/zip_source_file_win32_utf8.c
+		)
+		if(CMAKE_SYSTEM_NAME MATCHES WindowsPhone OR CMAKE_SYSTEM_NAME MATCHES WindowsStore)
+			target_sources(libzip PRIVATE ext/libzip/zip_random_uwp.c)
+		else()
+			target_sources(libzip PRIVATE ext/libzip/zip_source_file_win32_ansi.c ext/libzip/zip_random_win32.c)
+		endif()
+	else()
+		target_sources(libzip PRIVATE
+			ext/libzip/zip_mkstempm.c
+			ext/libzip/zip_source_file_stdio_named.c
+			ext/libzip/zip_random_unix.c
+		)
+	endif()
 	target_link_libraries(libzip)
 	include_directories(ext/libzip)
 	set(LIBZIP_LIBRARY libzip)
@@ -1048,39 +1155,69 @@ if(TARGET SDL2::SDL2 AND NOT IOS)
 	target_link_libraries(Common SDL2::SDL2)
 endif()
 
-
 list(APPEND NativeAppSource
 	android/jni/TestRunner.cpp
 	UI/DiscordIntegration.cpp
 	UI/NativeApp.cpp
+	UI/BackgroundAudio.h
 	UI/BackgroundAudio.cpp
+	UI/ChatScreen.h
 	UI/ChatScreen.cpp
 	UI/DevScreens.cpp
+	UI/DevScreens.h
 	UI/DisplayLayoutEditor.cpp
+	UI/DisplayLayoutEditor.h
 	UI/DisplayLayoutScreen.cpp
+	UI/DisplayLayoutScreen.h
+	UI/EmuScreen.h
 	UI/EmuScreen.cpp
+	UI/GameInfoCache.h
 	UI/GameInfoCache.cpp
+	UI/MainScreen.h
 	UI/MainScreen.cpp
+	UI/MiscScreens.h
 	UI/MiscScreens.cpp
+	UI/PauseScreen.h
 	UI/PauseScreen.cpp
+	UI/GameScreen.h
 	UI/GameScreen.cpp
+	UI/GameSettingsScreen.h
 	UI/GameSettingsScreen.cpp
+	UI/GPUDriverTestScreen.h
 	UI/GPUDriverTestScreen.cpp
+	UI/TiltAnalogSettingsScreen.h
 	UI/TiltAnalogSettingsScreen.cpp
+	UI/TiltEventProcessor.h
 	UI/TiltEventProcessor.cpp
+	UI/TouchControlLayoutScreen.h
 	UI/TouchControlLayoutScreen.cpp
+	UI/TouchControlVisibilityScreen.h
 	UI/TouchControlVisibilityScreen.cpp
+	UI/GamepadEmu.h
 	UI/GamepadEmu.cpp
+	UI/OnScreenDisplay.h
 	UI/OnScreenDisplay.cpp
+	UI/ControlMappingScreen.h
 	UI/ControlMappingScreen.cpp
+	UI/RemoteISOScreen.h
 	UI/RemoteISOScreen.cpp
+	UI/ReportScreen.h
 	UI/ReportScreen.cpp
+	UI/SavedataScreen.h
 	UI/SavedataScreen.cpp
+	UI/Store.h
 	UI/Store.cpp
+	UI/CwCheatScreen.h
 	UI/CwCheatScreen.cpp
+	UI/InstallZipScreen.h
 	UI/InstallZipScreen.cpp
+	UI/MemStickScreen.h
+	UI/MemStickScreen.cpp
+	UI/ProfilerDraw.h
 	UI/ProfilerDraw.cpp
+	UI/TextureUtil.h
 	UI/TextureUtil.cpp
+	UI/ComboKeyMappingScreen.h
 	UI/ComboKeyMappingScreen.cpp
 )
 
@@ -1458,6 +1595,8 @@ add_library(${CoreLibName} ${CoreLinkType}
 	Core/Config.cpp
 	Core/Config.h
 	Core/ConfigValues.h
+	Core/ControlMapper.cpp
+	Core/ControlMapper.h
 	Core/Core.cpp
 	Core/Core.h
 	Core/Compatibility.cpp
@@ -1513,6 +1652,8 @@ add_library(${CoreLibName} ${CoreLinkType}
 	Core/Debugger/WebSocket/MemoryInfoSubscriber.h
 	Core/Debugger/WebSocket/MemorySubscriber.cpp
 	Core/Debugger/WebSocket/MemorySubscriber.h
+	Core/Debugger/WebSocket/ReplaySubscriber.cpp
+	Core/Debugger/WebSocket/ReplaySubscriber.h
 	Core/Debugger/WebSocket/SteppingBroadcaster.cpp
 	Core/Debugger/WebSocket/SteppingBroadcaster.h
 	Core/Debugger/WebSocket/SteppingSubscriber.cpp
@@ -1843,11 +1984,17 @@ if(WIN32)
 	set(GlslangLibs ${GlslangLibs} spirv-cross-hlsl)
 endif()
 
+if(OPENGL_opengl_LIBRARY AND OpenGL_GL_PREFERENCE STREQUAL GLVND AND NOT APPLE)
+    set(OPENGL_LIBRARIES OpenGL::OpenGL)
+endif()
+
 target_link_libraries(${CoreLibName} Common native kirk cityhash sfmt19937 xbrz xxhash ${GlslangLibs}
 	${CoreExtraLibs} ${OPENGL_LIBRARIES} ${X11_LIBRARIES} ${CMAKE_DL_LIBS})
 
 if(FFmpeg_FOUND)
 	target_compile_definitions(${CoreLibName} PRIVATE USE_FFMPEG=1)
+	set_target_properties(${CoreLibName} PROPERTIES NO_SYSTEM_FROM_IMPORTED true)
+	target_include_directories(${CoreLibName} BEFORE PUBLIC ${FFmpeg_INCLUDE_avcodec})
 	target_link_libraries(${CoreLibName}
 		FFmpeg::avcodec
 		FFmpeg::avformat
@@ -1874,7 +2021,7 @@ if(USE_MINIUPNPC)
 	if (NO_GETADDRINFO)
 	  add_definitions(-DNO_GETADDRINFO)
 	endif()
-	
+
 	if (NOT WIN32)
 	  add_definitions (-DMINIUPNPC_SET_SOCKET_TIMEOUT)
 	  add_definitions (-D_BSD_SOURCE -D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200112L)
@@ -1887,7 +2034,7 @@ if(USE_MINIUPNPC)
 	else()
 		add_definitions(-fPIC)
 	endif()
-	
+
 	add_definitions(-DWITH_UPNP -DMINIUPNP_STATICLIB)
 	set(MINIUPNP_DIR "ext/miniupnp/miniupnpc")
 	include_directories(${CMAKE_CURRENT_BINARY_DIR})
@@ -2125,6 +2272,7 @@ if(UNITTEST)
 		unittest/TestArm64Emitter.cpp
 		unittest/TestX64Emitter.cpp
 		unittest/TestVertexJit.cpp
+		unittest/TestThreadManager.cpp
 		unittest/JitHarness.cpp
 		Core/MIPS/ARM/ArmRegCache.cpp
 		Core/MIPS/ARM/ArmRegCacheFPU.cpp

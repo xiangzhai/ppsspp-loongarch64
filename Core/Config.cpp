@@ -68,136 +68,172 @@ struct ConfigSetting {
 		TYPE_BOOL,
 		TYPE_INT,
 		TYPE_UINT32,
+		TYPE_UINT64,
 		TYPE_FLOAT,
 		TYPE_STRING,
 		TYPE_TOUCH_POS,
+		TYPE_PATH,
+		TYPE_CUSTOM_BUTTON
 	};
-	union Value {
+	union DefaultValue {
 		bool b;
 		int i;
 		uint32_t u;
+		uint64_t lu;
 		float f;
 		const char *s;
+		const char *p;  // not sure how much point..
 		ConfigTouchPos touchPos;
+		ConfigCustomButton customButton;
 	};
 	union SettingPtr {
 		bool *b;
 		int *i;
 		uint32_t *u;
+		uint64_t *lu;
 		float *f;
 		std::string *s;
+		Path *p;
 		ConfigTouchPos *touchPos;
+		ConfigCustomButton *customButton;
 	};
 
 	typedef bool (*BoolDefaultCallback)();
 	typedef int (*IntDefaultCallback)();
 	typedef uint32_t (*Uint32DefaultCallback)();
+	typedef uint64_t (*Uint64DefaultCallback)();
 	typedef float (*FloatDefaultCallback)();
 	typedef const char *(*StringDefaultCallback)();
-	typedef ConfigTouchPos (*TouchPosDefaultCallback)();
+	typedef ConfigTouchPos(*TouchPosDefaultCallback)();
+	typedef const char *(*PathDefaultCallback)();
+	typedef ConfigCustomButton (*CustomButtonDefaultCallback)();
 
 	union Callback {
 		BoolDefaultCallback b;
 		IntDefaultCallback i;
 		Uint32DefaultCallback u;
+		Uint64DefaultCallback lu;
 		FloatDefaultCallback f;
 		StringDefaultCallback s;
+		PathDefaultCallback p;
 		TouchPosDefaultCallback touchPos;
+		CustomButtonDefaultCallback customButton;
 	};
 
 	ConfigSetting(bool v)
-		: ini_(""), type_(TYPE_TERMINATOR), report_(false), save_(false), perGame_(false) {
+		: iniKey_(""), type_(TYPE_TERMINATOR), report_(false), save_(false), perGame_(false) {
 		ptr_.b = nullptr;
 		cb_.b = nullptr;
 	}
 
 	ConfigSetting(const char *ini, bool *v, bool def, bool save = true, bool perGame = false)
-		: ini_(ini), type_(TYPE_BOOL), report_(false), save_(save), perGame_(perGame) {
+		: iniKey_(ini), type_(TYPE_BOOL), report_(false), save_(save), perGame_(perGame) {
 		ptr_.b = v;
 		cb_.b = nullptr;
 		default_.b = def;
 	}
 
 	ConfigSetting(const char *ini, int *v, int def, bool save = true, bool perGame = false)
-		: ini_(ini), type_(TYPE_INT), report_(false), save_(save), perGame_(perGame) {
+		: iniKey_(ini), type_(TYPE_INT), report_(false), save_(save), perGame_(perGame) {
 		ptr_.i = v;
 		cb_.i = nullptr;
 		default_.i = def;
 	}
 
 	ConfigSetting(const char *ini, int *v, int def, std::function<std::string(int)> transTo, std::function<int(const std::string &)> transFrom, bool save = true, bool perGame = false)
-		: ini_(ini), type_(TYPE_INT), report_(false), save_(save), perGame_(perGame), translateTo_(transTo), translateFrom_(transFrom) {
+		: iniKey_(ini), type_(TYPE_INT), report_(false), save_(save), perGame_(perGame), translateTo_(transTo), translateFrom_(transFrom) {
 		ptr_.i = v;
 		cb_.i = nullptr;
 		default_.i = def;
 	}
 
 	ConfigSetting(const char *ini, uint32_t *v, uint32_t def, bool save = true, bool perGame = false)
-		: ini_(ini), type_(TYPE_UINT32), report_(false), save_(save), perGame_(perGame) {
+		: iniKey_(ini), type_(TYPE_UINT32), report_(false), save_(save), perGame_(perGame) {
 		ptr_.u = v;
 		cb_.u = nullptr;
 		default_.u = def;
 	}
 
+	ConfigSetting(const char *ini, uint64_t *v, uint64_t def, bool save = true, bool perGame = false)
+		: iniKey_(ini), type_(TYPE_UINT64), report_(false), save_(save), perGame_(perGame) {
+		ptr_.lu = v;
+		cb_.lu = nullptr;
+		default_.lu = def;
+	}
+
 	ConfigSetting(const char *ini, float *v, float def, bool save = true, bool perGame = false)
-		: ini_(ini), type_(TYPE_FLOAT), report_(false), save_(save), perGame_(perGame) {
+		: iniKey_(ini), type_(TYPE_FLOAT), report_(false), save_(save), perGame_(perGame) {
 		ptr_.f = v;
 		cb_.f = nullptr;
 		default_.f = def;
 	}
 
 	ConfigSetting(const char *ini, std::string *v, const char *def, bool save = true, bool perGame = false)
-		: ini_(ini), type_(TYPE_STRING), report_(false), save_(save), perGame_(perGame) {
+		: iniKey_(ini), type_(TYPE_STRING), report_(false), save_(save), perGame_(perGame) {
 		ptr_.s = v;
 		cb_.s = nullptr;
 		default_.s = def;
 	}
 
+	ConfigSetting(const char *ini, Path *p, const char *def, bool save = true, bool perGame = false)
+		: iniKey_(ini), type_(TYPE_PATH), report_(false), save_(save), perGame_(perGame) {
+		ptr_.p = p;
+		cb_.p = nullptr;
+		default_.p = def;
+	}
+
 	ConfigSetting(const char *iniX, const char *iniY, const char *iniScale, const char *iniShow, ConfigTouchPos *v, ConfigTouchPos def, bool save = true, bool perGame = false)
-		: ini_(iniX), ini2_(iniY), ini3_(iniScale), ini4_(iniShow), type_(TYPE_TOUCH_POS), report_(false), save_(save), perGame_(perGame) {
+		: iniKey_(iniX), ini2_(iniY), ini3_(iniScale), ini4_(iniShow), type_(TYPE_TOUCH_POS), report_(false), save_(save), perGame_(perGame) {
 		ptr_.touchPos = v;
 		cb_.touchPos = nullptr;
 		default_.touchPos = def;
 	}
 
+	ConfigSetting(const char *iniKey, const char *iniImage, const char *iniShape, const char *iniToggle, ConfigCustomButton *v, ConfigCustomButton def, bool save = true, bool perGame = false)
+		: iniKey_(iniKey), ini2_(iniImage), ini3_(iniShape), ini4_(iniToggle), type_(TYPE_CUSTOM_BUTTON), report_(false), save_(save), perGame_(perGame) {
+		ptr_.customButton = v;
+		cb_.customButton = nullptr;
+		default_.customButton = def;
+	}
+
 	ConfigSetting(const char *ini, bool *v, BoolDefaultCallback def, bool save = true, bool perGame = false)
-		: ini_(ini), type_(TYPE_BOOL), report_(false), save_(save), perGame_(perGame) {
+		: iniKey_(ini), type_(TYPE_BOOL), report_(false), save_(save), perGame_(perGame) {
 		ptr_.b = v;
 		cb_.b = def;
 	}
 
 	ConfigSetting(const char *ini, int *v, IntDefaultCallback def, bool save = true, bool perGame = false)
-		: ini_(ini), type_(TYPE_INT), report_(false), save_(save), perGame_(perGame) {
+		: iniKey_(ini), type_(TYPE_INT), report_(false), save_(save), perGame_(perGame) {
 		ptr_ .i = v;
 		cb_.i = def;
 	}
 
 	ConfigSetting(const char *ini, int *v, IntDefaultCallback def, std::function<std::string(int)> transTo, std::function<int(const std::string &)> transFrom, bool save = true, bool perGame = false)
-		: ini_(ini), type_(TYPE_INT), report_(false), save_(save), perGame_(perGame), translateTo_(transTo), translateFrom_(transFrom) {
+		: iniKey_(ini), type_(TYPE_INT), report_(false), save_(save), perGame_(perGame), translateTo_(transTo), translateFrom_(transFrom) {
 		ptr_.i = v;
 		cb_.i = def;
 	}
 
 	ConfigSetting(const char *ini, uint32_t *v, Uint32DefaultCallback def, bool save = true, bool perGame = false)
-		: ini_(ini), type_(TYPE_UINT32), report_(false), save_(save), perGame_(perGame) {
+		: iniKey_(ini), type_(TYPE_UINT32), report_(false), save_(save), perGame_(perGame) {
 		ptr_ .u = v;
 		cb_.u = def;
 	}
 
 	ConfigSetting(const char *ini, float *v, FloatDefaultCallback def, bool save = true, bool perGame = false)
-		: ini_(ini), type_(TYPE_FLOAT), report_(false), save_(save), perGame_(perGame) {
+		: iniKey_(ini), type_(TYPE_FLOAT), report_(false), save_(save), perGame_(perGame) {
 		ptr_.f = v;
 		cb_.f = def;
 	}
 
 	ConfigSetting(const char *ini, std::string *v, StringDefaultCallback def, bool save = true, bool perGame = false)
-		: ini_(ini), type_(TYPE_STRING), report_(false), save_(save), perGame_(perGame) {
+		: iniKey_(ini), type_(TYPE_STRING), report_(false), save_(save), perGame_(perGame) {
 		ptr_.s = v;
 		cb_.s = def;
 	}
 
 	ConfigSetting(const char *iniX, const char *iniY, const char *iniScale, const char *iniShow, ConfigTouchPos *v, TouchPosDefaultCallback def, bool save = true, bool perGame = false)
-		: ini_(iniX), ini2_(iniY), ini3_(iniScale), ini4_(iniShow), type_(TYPE_TOUCH_POS), report_(false), save_(save), perGame_(perGame) {
+		: iniKey_(iniX), ini2_(iniY), ini3_(iniScale), ini4_(iniShow), type_(TYPE_TOUCH_POS), report_(false), save_(save), perGame_(perGame) {
 		ptr_.touchPos = v;
 		cb_.touchPos = def;
 	}
@@ -212,39 +248,44 @@ struct ConfigSetting {
 			if (cb_.b) {
 				default_.b = cb_.b();
 			}
-			return section->Get(ini_, ptr_.b, default_.b);
+			return section->Get(iniKey_, ptr_.b, default_.b);
 		case TYPE_INT:
 			if (cb_.i) {
 				default_.i = cb_.i();
 			}
 			if (translateFrom_) {
 				std::string value;
-				if (section->Get(ini_, &value, nullptr)) {
+				if (section->Get(iniKey_, &value, nullptr)) {
 					*ptr_.i = translateFrom_(value);
 					return true;
 				}
 			}
-			return section->Get(ini_, ptr_.i, default_.i);
+			return section->Get(iniKey_, ptr_.i, default_.i);
 		case TYPE_UINT32:
 			if (cb_.u) {
 				default_.u = cb_.u();
 			}
-			return section->Get(ini_, ptr_.u, default_.u);
+			return section->Get(iniKey_, ptr_.u, default_.u);
+		case TYPE_UINT64:
+			if (cb_.lu) {
+				default_.lu = cb_.lu();
+			}
+			return section->Get(iniKey_, ptr_.lu, default_.lu);
 		case TYPE_FLOAT:
 			if (cb_.f) {
 				default_.f = cb_.f();
 			}
-			return section->Get(ini_, ptr_.f, default_.f);
+			return section->Get(iniKey_, ptr_.f, default_.f);
 		case TYPE_STRING:
 			if (cb_.s) {
 				default_.s = cb_.s();
 			}
-			return section->Get(ini_, ptr_.s, default_.s);
+			return section->Get(iniKey_, ptr_.s, default_.s);
 		case TYPE_TOUCH_POS:
 			if (cb_.touchPos) {
 				default_.touchPos = cb_.touchPos();
 			}
-			section->Get(ini_, &ptr_.touchPos->x, default_.touchPos.x);
+			section->Get(iniKey_, &ptr_.touchPos->x, default_.touchPos.x);
 			section->Get(ini2_, &ptr_.touchPos->y, default_.touchPos.y);
 			section->Get(ini3_, &ptr_.touchPos->scale, default_.touchPos.scale);
 			if (ini4_) {
@@ -252,6 +293,27 @@ struct ConfigSetting {
 			} else {
 				ptr_.touchPos->show = default_.touchPos.show;
 			}
+			return true;
+		case TYPE_PATH:
+		{
+			std::string tmp;
+			if (cb_.p) {
+				default_.p = cb_.p();
+			}
+			bool result = section->Get(iniKey_, &tmp, default_.p);
+			if (result) {
+				*ptr_.p = Path(tmp);
+			}
+			return result;
+		}
+		case TYPE_CUSTOM_BUTTON:
+			if (cb_.customButton) {
+				default_.customButton = cb_.customButton();
+			}
+			section->Get(iniKey_, &ptr_.customButton->key, default_.customButton.key);
+			section->Get(ini2_, &ptr_.customButton->image, default_.customButton.image);
+			section->Get(ini3_, &ptr_.customButton->shape, default_.customButton.shape);
+			section->Get(ini4_, &ptr_.customButton->toggle, default_.customButton.toggle);
 			return true;
 		default:
 			_dbg_assert_msg_(false, "Unexpected ini setting type");
@@ -265,26 +327,36 @@ struct ConfigSetting {
 
 		switch (type_) {
 		case TYPE_BOOL:
-			return section->Set(ini_, *ptr_.b);
+			return section->Set(iniKey_, *ptr_.b);
 		case TYPE_INT:
 			if (translateTo_) {
 				std::string value = translateTo_(*ptr_.i);
-				return section->Set(ini_, value);
+				return section->Set(iniKey_, value);
 			}
-			return section->Set(ini_, *ptr_.i);
+			return section->Set(iniKey_, *ptr_.i);
 		case TYPE_UINT32:
-			return section->Set(ini_, *ptr_.u);
+			return section->Set(iniKey_, *ptr_.u);
+		case TYPE_UINT64:
+			return section->Set(iniKey_, *ptr_.lu);
 		case TYPE_FLOAT:
-			return section->Set(ini_, *ptr_.f);
+			return section->Set(iniKey_, *ptr_.f);
 		case TYPE_STRING:
-			return section->Set(ini_, *ptr_.s);
+			return section->Set(iniKey_, *ptr_.s);
+		case TYPE_PATH:
+			return section->Set(iniKey_, ptr_.p->ToString());
 		case TYPE_TOUCH_POS:
-			section->Set(ini_, ptr_.touchPos->x);
+			section->Set(iniKey_, ptr_.touchPos->x);
 			section->Set(ini2_, ptr_.touchPos->y);
 			section->Set(ini3_, ptr_.touchPos->scale);
 			if (ini4_) {
 				section->Set(ini4_, ptr_.touchPos->show);
 			}
+			return;
+		case TYPE_CUSTOM_BUTTON:
+			section->Set(iniKey_, ptr_.customButton->key);
+			section->Set(ini2_, ptr_.customButton->image);
+			section->Set(ini3_, ptr_.customButton->shape);
+			section->Set(ini4_, ptr_.customButton->toggle);
 			return;
 		default:
 			_dbg_assert_msg_(false, "Unexpected ini setting type");
@@ -298,16 +370,23 @@ struct ConfigSetting {
 
 		switch (type_) {
 		case TYPE_BOOL:
-			return data.Add(prefix + ini_, *ptr_.b);
+			return data.Add(prefix + iniKey_, *ptr_.b);
 		case TYPE_INT:
-			return data.Add(prefix + ini_, *ptr_.i);
+			return data.Add(prefix + iniKey_, *ptr_.i);
 		case TYPE_UINT32:
-			return data.Add(prefix + ini_, *ptr_.u);
+			return data.Add(prefix + iniKey_, *ptr_.u);
+		case TYPE_UINT64:
+			return data.Add(prefix + iniKey_, *ptr_.lu);
 		case TYPE_FLOAT:
-			return data.Add(prefix + ini_, *ptr_.f);
+			return data.Add(prefix + iniKey_, *ptr_.f);
 		case TYPE_STRING:
-			return data.Add(prefix + ini_, *ptr_.s);
+			return data.Add(prefix + iniKey_, *ptr_.s);
+		case TYPE_PATH:
+			return data.Add(prefix + iniKey_, ptr_.p->ToString());
 		case TYPE_TOUCH_POS:
+			// Doesn't report.
+			return;
+		case TYPE_CUSTOM_BUTTON:
 			// Doesn't report.
 			return;
 		default:
@@ -316,7 +395,7 @@ struct ConfigSetting {
 		}
 	}
 
-	const char *ini_;
+	const char *iniKey_;
 	const char *ini2_;
 	const char *ini3_;
 	const char *ini4_;
@@ -325,7 +404,7 @@ struct ConfigSetting {
 	bool save_;
 	bool perGame_;
 	SettingPtr ptr_;
-	Value default_;
+	DefaultValue default_;
 	Callback cb_;
 
 	// We only support transform for ints.
@@ -395,12 +474,6 @@ std::string CreateRandMAC() {
 	return randStream.str();
 }
 
-static int DefaultNumWorkers() {
-	// Let's cap the global thread pool at 16 threads. Nothing we do really should have much
-	// use for more...
-	return std::min(16, cpu_info.num_cores);
-}
-
 static int DefaultCpuCore() {
 #if PPSSPP_ARCH(ARM) || PPSSPP_ARCH(ARM64) || PPSSPP_ARCH(X86) || PPSSPP_ARCH(AMD64)
 	return (int)CPUCore::JIT;
@@ -445,7 +518,6 @@ static ConfigSetting generalSettings[] = {
 	ConfigSetting("DiscordPresence", &g_Config.bDiscordPresence, true, true, false),  // Or maybe it makes sense to have it per-game? Race conditions abound...
 	ConfigSetting("UISound", &g_Config.bUISound, false, true, false),
 
-	ReportedConfigSetting("NumWorkerThreads", &g_Config.iNumWorkerThreads, &DefaultNumWorkers, true, true),
 	ConfigSetting("AutoLoadSaveState", &g_Config.iAutoLoadSaveState, 0, true, true),
 	ReportedConfigSetting("EnableCheats", &g_Config.bEnableCheats, false, true, true),
 	ConfigSetting("CwCheatRefreshRate", &g_Config.iCwCheatRefreshRate, 77, true, true),
@@ -460,6 +532,9 @@ static ConfigSetting generalSettings[] = {
 	ConfigSetting("SaveLoadResetsAVdumping", &g_Config.bSaveLoadResetsAVdumping, false),
 	ConfigSetting("StateSlot", &g_Config.iCurrentStateSlot, 0, true, true),
 	ConfigSetting("EnableStateUndo", &g_Config.bEnableStateUndo, &DefaultEnableStateUndo, true, true),
+	ConfigSetting("StateLoadUndoGame", &g_Config.sStateLoadUndoGame, "NA", true, false),
+	ConfigSetting("StateUndoLastSaveGame", &g_Config.sStateUndoLastSaveGame, "NA", true, false),
+	ConfigSetting("StateUndoLastSaveSlot", &g_Config.iStateUndoLastSaveSlot, -5, true, false), // Start with an "invalid" value
 	ConfigSetting("RewindFlipFrequency", &g_Config.iRewindFlipFrequency, 0, true, true),
 
 	ConfigSetting("ShowOnScreenMessage", &g_Config.bShowOnScreenMessages, true, true, false),
@@ -469,13 +544,13 @@ static ConfigSetting generalSettings[] = {
 	ConfigSetting("GridView1", &g_Config.bGridView1, true),
 	ConfigSetting("GridView2", &g_Config.bGridView2, true),
 	ConfigSetting("GridView3", &g_Config.bGridView3, false),
-	ConfigSetting("ComboMode", &g_Config.iComboMode, 0),
 	ConfigSetting("RightAnalogUp", &g_Config.iRightAnalogUp, 0, true, true),
 	ConfigSetting("RightAnalogDown", &g_Config.iRightAnalogDown, 0, true, true),
 	ConfigSetting("RightAnalogLeft", &g_Config.iRightAnalogLeft, 0, true, true),
 	ConfigSetting("RightAnalogRight", &g_Config.iRightAnalogRight, 0, true, true),
 	ConfigSetting("RightAnalogPress", &g_Config.iRightAnalogPress, 0, true, true),
 	ConfigSetting("RightAnalogCustom", &g_Config.bRightAnalogCustom, false, true, true),
+	ConfigSetting("RightAnalogDisableDiagonal", &g_Config.bRightAnalogDisableDiagonal, false, true, true),
 
 	// "default" means let emulator decide, "" means disable.
 	ConfigSetting("ReportingHost", &g_Config.sReportHost, "default"),
@@ -546,11 +621,11 @@ static int DefaultInternalResolution() {
 #endif
 }
 
-static int DefaultUnthrottleMode() {
+static int DefaultFastForwardMode() {
 #if PPSSPP_PLATFORM(ANDROID) || defined(USING_QT_UI) || PPSSPP_PLATFORM(UWP) || PPSSPP_PLATFORM(IOS)
-	return (int)UnthrottleMode::SKIP_FLIP;
+	return (int)FastForwardMode::SKIP_FLIP;
 #else
-	return (int)UnthrottleMode::CONTINUOUS;
+	return (int)FastForwardMode::CONTINUOUS;
 #endif
 }
 
@@ -586,6 +661,11 @@ static int DefaultAndroidHwScale() {
 #endif
 }
 
+// See issue 14439. Should possibly even block these devices from selecting VK.
+const char * const vulkanDefaultBlacklist[] = {
+	"Sony:BRAVIA VH1",
+};
+
 static int DefaultGPUBackend() {
 #if PPSSPP_PLATFORM(WINDOWS)
 	// If no Vulkan, use Direct3D 11 on Windows 8+ (most importantly 10.)
@@ -593,11 +673,22 @@ static int DefaultGPUBackend() {
 		return (int)GPUBackend::DIRECT3D11;
 	}
 #elif PPSSPP_PLATFORM(ANDROID)
-	// Default to Vulkan only on Oreo 8.1 (level 27) devices or newer. Drivers before
-	// were generally too unreliable to default to (with some exceptions, of course).
+	// Check blacklist.
+	for (size_t i = 0; i < ARRAY_SIZE(vulkanDefaultBlacklist); i++) {
+		if (System_GetProperty(SYSPROP_NAME) == vulkanDefaultBlacklist[i]) {
+			return (int)GPUBackend::OPENGL;
+		}
+	}
+
+	// Default to Vulkan only on Oreo 8.1 (level 27) devices or newer, and only
+	// on ARM64 and x86-64. Drivers before, and on other archs, are generally too
+	// unreliable to default to (with some exceptions, of course).
+#if PPSSPP_ARCH(64BIT)
 	if (System_GetPropertyInt(SYSPROP_SYSTEMVERSION) >= 27) {
 		return (int)GPUBackend::VULKAN;
 	}
+#endif
+
 #endif
 	// TODO: On some additional Linux platforms, we should also default to Vulkan.
 	return (int)GPUBackend::OPENGL;
@@ -717,23 +808,23 @@ struct ConfigTranslator {
 
 typedef ConfigTranslator<GPUBackend, GPUBackendToString, GPUBackendFromString> GPUBackendTranslator;
 
-static int UnthrottleModeFromString(const std::string &s) {
+static int FastForwardModeFromString(const std::string &s) {
 	if (!strcasecmp(s.c_str(), "CONTINUOUS"))
-		return (int)UnthrottleMode::CONTINUOUS;
+		return (int)FastForwardMode::CONTINUOUS;
 	if (!strcasecmp(s.c_str(), "SKIP_DRAW"))
-		return (int)UnthrottleMode::SKIP_DRAW;
+		return (int)FastForwardMode::SKIP_DRAW;
 	if (!strcasecmp(s.c_str(), "SKIP_FLIP"))
-		return (int)UnthrottleMode::SKIP_FLIP;
-	return DefaultUnthrottleMode();
+		return (int)FastForwardMode::SKIP_FLIP;
+	return DefaultFastForwardMode();
 }
 
-std::string UnthrottleModeToString(int v) {
-	switch (UnthrottleMode(v)) {
-	case UnthrottleMode::CONTINUOUS:
+std::string FastForwardModeToString(int v) {
+	switch (FastForwardMode(v)) {
+	case FastForwardMode::CONTINUOUS:
 		return "CONTINUOUS";
-	case UnthrottleMode::SKIP_DRAW:
+	case FastForwardMode::SKIP_DRAW:
 		return "SKIP_DRAW";
-	case UnthrottleMode::SKIP_FLIP:
+	case FastForwardMode::SKIP_FLIP:
 		return "SKIP_FLIP";
 	}
 	return "CONTINUOUS";
@@ -768,7 +859,7 @@ static ConfigSetting graphicsSettings[] = {
 	ReportedConfigSetting("AutoFrameSkip", &g_Config.bAutoFrameSkip, false, true, true),
 	ConfigSetting("FrameRate", &g_Config.iFpsLimit1, 0, true, true),
 	ConfigSetting("FrameRate2", &g_Config.iFpsLimit2, -1, true, true),
-	ConfigSetting("UnthrottlingMode", &g_Config.iUnthrottleMode, &DefaultUnthrottleMode, &UnthrottleModeToString, &UnthrottleModeFromString, true, true),
+	ConfigSetting("UnthrottlingMode", &g_Config.iFastForwardMode, &DefaultFastForwardMode, &FastForwardModeToString, &FastForwardModeFromString, true, true),
 #if defined(USING_WIN_UI)
 	ConfigSetting("RestartRequired", &g_Config.bRestartRequired, false, false),
 #endif
@@ -829,7 +920,8 @@ static ConfigSetting soundSettings[] = {
 	ConfigSetting("Enable", &g_Config.bEnableSound, true, true, true),
 	ConfigSetting("AudioBackend", &g_Config.iAudioBackend, 0, true, true),
 	ConfigSetting("ExtraAudioBuffering", &g_Config.bExtraAudioBuffering, false, true, false),
-	ConfigSetting("GlobalVolume", &g_Config.iGlobalVolume, VOLUME_MAX, true, true),
+	ConfigSetting("GlobalVolume", &g_Config.iGlobalVolume, VOLUME_FULL, true, true),
+	ConfigSetting("ReverbVolume", &g_Config.iReverbVolume, VOLUME_FULL, true, true),
 	ConfigSetting("AltSpeedVolume", &g_Config.iAltSpeedVolume, -1, true, true),
 	ConfigSetting("AudioDevice", &g_Config.sAudioDevice, "", true, false),
 	ConfigSetting("AutoAudioDevice", &g_Config.bAutoAudioDevice, true, true, false),
@@ -866,17 +958,16 @@ static ConfigSetting controlSettings[] = {
 	ConfigSetting("ShowTouchSquare", &g_Config.bShowTouchSquare, true, true, true),
 	ConfigSetting("ShowTouchTriangle", &g_Config.bShowTouchTriangle, true, true, true),
 
-	ConfigSetting("ComboKey0Mapping", &g_Config.iCombokey0, 0, true, true),
-	ConfigSetting("ComboKey1Mapping", &g_Config.iCombokey1, 0, true, true),
-	ConfigSetting("ComboKey2Mapping", &g_Config.iCombokey2, 0, true, true),
-	ConfigSetting("ComboKey3Mapping", &g_Config.iCombokey3, 0, true, true),
-	ConfigSetting("ComboKey4Mapping", &g_Config.iCombokey4, 0, true, true),
-
-	ConfigSetting("ComboKey0Toggle", &g_Config.bComboToggle0, false, true, true),
-	ConfigSetting("ComboKey1Toggle", &g_Config.bComboToggle1, false, true, true),
-	ConfigSetting("ComboKey2Toggle", &g_Config.bComboToggle2, false, true, true),
-	ConfigSetting("ComboKey3Toggle", &g_Config.bComboToggle3, false, true, true),
-	ConfigSetting("ComboKey4Toggle", &g_Config.bComboToggle4, false, true, true),
+	ConfigSetting("Custom0Mapping", "Custom0Image", "Custom0Shape", "Custom0Toggle", &g_Config.CustomKey0, {0, 0, 0, false}, true, true),
+	ConfigSetting("Custom1Mapping", "Custom1Image", "Custom1Shape", "Custom1Toggle", &g_Config.CustomKey1, {0, 1, 0, false}, true, true),
+	ConfigSetting("Custom2Mapping", "Custom2Image", "Custom2Shape", "Custom2Toggle", &g_Config.CustomKey2, {0, 2, 0, false}, true, true),
+	ConfigSetting("Custom3Mapping", "Custom3Image", "Custom3Shape", "Custom3Toggle", &g_Config.CustomKey3, {0, 3, 0, false}, true, true),
+	ConfigSetting("Custom4Mapping", "Custom4Image", "Custom4Shape", "Custom4Toggle", &g_Config.CustomKey4, {0, 4, 0, false}, true, true),
+	ConfigSetting("Custom5Mapping", "Custom5Image", "Custom5Shape", "Custom5Toggle", &g_Config.CustomKey5, {0, 0, 1, false}, true, true),
+	ConfigSetting("Custom6Mapping", "Custom6Image", "Custom6Shape", "Custom6Toggle", &g_Config.CustomKey6, {0, 1, 1, false}, true, true),
+	ConfigSetting("Custom7Mapping", "Custom7Image", "Custom7Shape", "Custom7Toggle", &g_Config.CustomKey7, {0, 2, 1, false}, true, true),
+	ConfigSetting("Custom8Mapping", "Custom8Image", "Custom8Shape", "Custom8Toggle", &g_Config.CustomKey8, {0, 3, 1, false}, true, true),
+	ConfigSetting("Custom9Mapping", "Custom9Image", "Custom9Shape", "Custom9Toggle", &g_Config.CustomKey9, {0, 4, 1, false}, true, true),
 
 #if defined(_WIN32)
 	// A win32 user seeing touch controls is likely using PPSSPP on a tablet. There it makes
@@ -894,6 +985,7 @@ static ConfigSetting controlSettings[] = {
 #ifdef MOBILE_DEVICE
 	ConfigSetting("TiltBaseX", &g_Config.fTiltBaseX, 0.0f, true, true),
 	ConfigSetting("TiltBaseY", &g_Config.fTiltBaseY, 0.0f, true, true),
+	ConfigSetting("TiltOrientation", &g_Config.iTiltOrientation, 0, true, true),
 	ConfigSetting("InvertTiltX", &g_Config.bInvertTiltX, false, true, true),
 	ConfigSetting("InvertTiltY", &g_Config.bInvertTiltY, true, true, true),
 	ConfigSetting("TiltSensitivityX", &g_Config.iTiltSensitivityX, 100, true, true),
@@ -909,7 +1001,7 @@ static ConfigSetting controlSettings[] = {
 	ConfigSetting("TouchButtonOpacity", &g_Config.iTouchButtonOpacity, 65, true, true),
 	ConfigSetting("TouchButtonHideSeconds", &g_Config.iTouchButtonHideSeconds, 20, true, true),
 	ConfigSetting("AutoCenterTouchAnalog", &g_Config.bAutoCenterTouchAnalog, false, true, true),
-	ConfigSetting("AnalogAutoRotSpeed", &g_Config.fAnalogAutoRotSpeed, 15.0f, true, true),
+	ConfigSetting("AnalogAutoRotSpeed", &g_Config.fAnalogAutoRotSpeed, 8.0f, true, true),
 
 	// Snap touch control position
 	ConfigSetting("TouchSnapToGrid", &g_Config.bTouchSnapToGrid, false, true, true),
@@ -924,7 +1016,7 @@ static ConfigSetting controlSettings[] = {
 	ConfigSetting("DPadSpacing", &g_Config.fDpadSpacing, 1.0f, true, true),
 	ConfigSetting("StartKeyX", "StartKeyY", "StartKeyScale", "ShowTouchStart", &g_Config.touchStartKey, defaultTouchPosShow, true, true),
 	ConfigSetting("SelectKeyX", "SelectKeyY", "SelectKeyScale", "ShowTouchSelect", &g_Config.touchSelectKey, defaultTouchPosShow, true, true),
-	ConfigSetting("UnthrottleKeyX", "UnthrottleKeyY", "UnthrottleKeyScale", "ShowTouchUnthrottle", &g_Config.touchUnthrottleKey, defaultTouchPosShow, true, true),
+	ConfigSetting("UnthrottleKeyX", "UnthrottleKeyY", "UnthrottleKeyScale", "ShowTouchUnthrottle", &g_Config.touchFastForwardKey, defaultTouchPosShow, true, true),
 	ConfigSetting("LKeyX", "LKeyY", "LKeyScale", "ShowTouchLTrigger", &g_Config.touchLKey, defaultTouchPosShow, true, true),
 	ConfigSetting("RKeyX", "RKeyY", "RKeyScale", "ShowTouchRTrigger", &g_Config.touchRKey, defaultTouchPosShow, true, true),
 	ConfigSetting("AnalogStickX", "AnalogStickY", "AnalogStickScale", "ShowAnalogStick", &g_Config.touchAnalogStick, defaultTouchPosShow, true, true),
@@ -935,24 +1027,17 @@ static ConfigSetting controlSettings[] = {
 	ConfigSetting("fcombo2X", "fcombo2Y", "comboKeyScale2", "ShowComboKey2", &g_Config.touchCombo2, defaultTouchPosHide, true, true),
 	ConfigSetting("fcombo3X", "fcombo3Y", "comboKeyScale3", "ShowComboKey3", &g_Config.touchCombo3, defaultTouchPosHide, true, true),
 	ConfigSetting("fcombo4X", "fcombo4Y", "comboKeyScale4", "ShowComboKey4", &g_Config.touchCombo4, defaultTouchPosHide, true, true),
-	ConfigSetting("Speed1KeyX", "Speed1KeyY", "Speed1KeyScale", "ShowSpeed1Key", &g_Config.touchSpeed1Key, defaultTouchPosHide, true, true),
-	ConfigSetting("Speed2KeyX", "Speed2KeyY", "Speed2KeyScale", "ShowSpeed2Key", &g_Config.touchSpeed2Key, defaultTouchPosHide, true, true),
-	ConfigSetting("RapidFireKeyX", "RapidFireKeyY", "RapidFireKeyScale", "ShowRapidFireKey", &g_Config.touchRapidFireKey, defaultTouchPosHide, true, true),
-	ConfigSetting("AnalogRotationCWKeyX", "AnalogRotationKeyCWY", "AnalogRotationKeyCWScale", "ShowAnalogRotationCWKey", &g_Config.touchAnalogRotationCWKey, defaultTouchPosHide, true, true),
-	ConfigSetting("AnalogRotationCCWKeyX", "AnalogRotationKeyCCWY", "AnalogRotationKeyCCWScale", "ShowAnalogRotationCCWKey", &g_Config.touchAnalogRotationCCWKey, defaultTouchPosHide, true, true),
+	ConfigSetting("fcombo5X", "fcombo5Y", "comboKeyScale5", "ShowComboKey5", &g_Config.touchCombo5, defaultTouchPosHide, true, true),
+	ConfigSetting("fcombo6X", "fcombo6Y", "comboKeyScale6", "ShowComboKey6", &g_Config.touchCombo6, defaultTouchPosHide, true, true),
+	ConfigSetting("fcombo7X", "fcombo7Y", "comboKeyScale7", "ShowComboKey7", &g_Config.touchCombo7, defaultTouchPosHide, true, true),
+	ConfigSetting("fcombo8X", "fcombo8Y", "comboKeyScale8", "ShowComboKey8", &g_Config.touchCombo8, defaultTouchPosHide, true, true),
+	ConfigSetting("fcombo9X", "fcombo9Y", "comboKeyScale9", "ShowComboKey9", &g_Config.touchCombo9, defaultTouchPosHide, true, true),
 
-#ifdef _WIN32
-	ConfigSetting("DInputAnalogDeadzone", &g_Config.fDInputAnalogDeadzone, 0.1f, true, true),
-	ConfigSetting("DInputAnalogInverseMode", &g_Config.iDInputAnalogInverseMode, 0, true, true),
-	ConfigSetting("DInputAnalogInverseDeadzone", &g_Config.fDInputAnalogInverseDeadzone, 0.0f, true, true),
-	ConfigSetting("DInputAnalogSensitivity", &g_Config.fDInputAnalogSensitivity, 1.0f, true, true),
+	ConfigSetting("AnalogDeadzone", &g_Config.fAnalogDeadzone, 0.15f, true, true),
+	ConfigSetting("AnalogInverseDeadzone", &g_Config.fAnalogInverseDeadzone, 0.0f, true, true),
+	ConfigSetting("AnalogSensitivity", &g_Config.fAnalogSensitivity, 1.1f, true, true),
+	ConfigSetting("AnalogIsCircular", &g_Config.bAnalogIsCircular, false , true, true),
 
-	ConfigSetting("XInputAnalogDeadzone", &g_Config.fXInputAnalogDeadzone, 0.24f, true, true),
-	ConfigSetting("XInputAnalogInverseMode", &g_Config.iXInputAnalogInverseMode, 0, true, true),
-	ConfigSetting("XInputAnalogInverseDeadzone", &g_Config.fXInputAnalogInverseDeadzone, 0.0f, true, true),
-#endif
-	// Also reused as generic analog sensitivity
-	ConfigSetting("XInputAnalogSensitivity", &g_Config.fXInputAnalogSensitivity, 1.0f, true, true),
 	ConfigSetting("AnalogLimiterDeadzone", &g_Config.fAnalogLimiterDeadzone, 0.6f, true, true),
 
 	ConfigSetting("UseMouse", &g_Config.bMouseControl, false, true, true),
@@ -969,8 +1054,8 @@ static ConfigSetting controlSettings[] = {
 static ConfigSetting networkSettings[] = {
 	ConfigSetting("EnableWlan", &g_Config.bEnableWlan, false, true, true),
 	ConfigSetting("EnableAdhocServer", &g_Config.bEnableAdhocServer, false, true, true),
-	ConfigSetting("proAdhocServer", &g_Config.proAdhocServer, "myneighborsushicat.com", true, true),
-	ConfigSetting("PortOffset", &g_Config.iPortOffset, 0, true, true),
+	ConfigSetting("proAdhocServer", &g_Config.proAdhocServer, "socom.cc", true, true),
+	ConfigSetting("PortOffset", &g_Config.iPortOffset, 10000, true, true),
 	ConfigSetting("MinTimeout", &g_Config.iMinTimeout, 0, true, true),
 	ConfigSetting("TCPNoDelay", &g_Config.bTCPNoDelay, true, true, true),
 	ConfigSetting("ForcedFirstConnect", &g_Config.bForcedFirstConnect, false, true, true),
@@ -1184,17 +1269,22 @@ void Config::Reload() {
 	reload_ = false;
 }
 
-void Config::Load(const char *iniFileName, const char *controllerIniFilename) {
+// Call this if you change the search path (such as when changing memstick directory. can't
+// really think of any other legit uses).
+void Config::UpdateIniLocation(const char *iniFileName, const char *controllerIniFilename) {
 	const bool useIniFilename = iniFileName != nullptr && strlen(iniFileName) > 0;
 	iniFilename_ = FindConfigFile(useIniFilename ? iniFileName : "ppsspp.ini");
+	const bool useControllerIniFilename = controllerIniFilename != nullptr && strlen(controllerIniFilename) > 0;
+	controllerIniFilename_ = FindConfigFile(useControllerIniFilename ? controllerIniFilename : "controls.ini");
+}
 
+void Config::Load(const char *iniFileName, const char *controllerIniFilename) {
 	if (!bUpdatedInstanceCounter) {
 		InitInstanceCounter();
 		bUpdatedInstanceCounter = true;
 	}
 
-	const bool useControllerIniFilename = controllerIniFilename != nullptr && strlen(controllerIniFilename) > 0;
-	controllerIniFilename_ = FindConfigFile(useControllerIniFilename ? controllerIniFilename : "controls.ini");
+	UpdateIniLocation(iniFileName, controllerIniFilename);
 
 	INFO_LOG(LOADER, "Loading config: %s", iniFilename_.c_str());
 	bSaveSettings = true;
@@ -1202,7 +1292,7 @@ void Config::Load(const char *iniFileName, const char *controllerIniFilename) {
 	bShowFrameProfiler = true;
 
 	IniFile iniFile;
-	if (!iniFile.Load(iniFilename_)) {
+	if (!iniFile.Load(iniFilename_.ToString())) {
 		ERROR_LOG(LOADER, "Failed to read '%s'. Setting config to default.", iniFilename_.c_str());
 		// Continue anyway to initialize the config.
 	}
@@ -1212,8 +1302,11 @@ void Config::Load(const char *iniFileName, const char *controllerIniFilename) {
 	});
 
 	iRunCount++;
+
+	// This check is probably not really necessary here anyway, you can always
+	// press Home or Browse if you're in a bad directory.
 	if (!File::Exists(currentDirectory))
-		currentDirectory = "";
+		currentDirectory = defaultCurrentDirectory;
 
 	Section *log = iniFile.GetOrCreateSection(logSectionName);
 
@@ -1224,12 +1317,12 @@ void Config::Load(const char *iniFileName, const char *controllerIniFilename) {
 	LogManager::GetInstance()->LoadConfig(log, debugDefaults);
 
 	Section *recent = iniFile.GetOrCreateSection("Recent");
-	recent->Get("MaxRecent", &iMaxRecent, 30);
+	recent->Get("MaxRecent", &iMaxRecent, 60);
 
 	// Fix issue from switching from uint (hex in .ini) to int (dec)
 	// -1 is okay, though. We'll just ignore recent stuff if it is.
 	if (iMaxRecent == 0)
-		iMaxRecent = 30;
+		iMaxRecent = 60;
 
 	if (iMaxRecent > 0) {
 		recentIsos.clear();
@@ -1249,7 +1342,7 @@ void Config::Load(const char *iniFileName, const char *controllerIniFilename) {
 	for (auto it = pinnedPaths.begin(), end = pinnedPaths.end(); it != end; ++it) {
 		// Unpin paths that are deleted automatically.
 		const std::string &path = it->second;
-		if (startsWith(path, "http://") || startsWith(path, "https://") || File::Exists(path)) {
+		if (startsWith(path, "http://") || startsWith(path, "https://") || File::Exists(Path(path))) {
 			vPinnedPaths.push_back(File::ResolvePath(path));
 		}
 	}
@@ -1300,8 +1393,9 @@ void Config::Load(const char *iniFileName, const char *controllerIniFilename) {
 	// splash screen quickly), but then we'll just show the notification next time instead, we store the
 	// upgrade number in the ini.
 	if (iRunCount % 10 == 0 && bCheckForNewVersion) {
-		std::shared_ptr<http::Download> dl = g_DownloadManager.StartDownloadWithCallback(
-			"http://www.ppsspp.org/version.json", "", &DownloadCompletedCallback);
+		const char *versionUrl = "http://www.ppsspp.org/version.json";
+		const char *acceptMime = "application/json, text/*; q=0.9, */*; q=0.8";
+		auto dl = g_DownloadManager.StartDownloadWithCallback(versionUrl, Path(), &DownloadCompletedCallback, acceptMime);
 		dl->SetHidden(true);
 	}
 
@@ -1341,24 +1435,26 @@ void Config::Load(const char *iniFileName, const char *controllerIniFilename) {
 	INFO_LOG(LOADER, "Config loaded: '%s'", iniFilename_.c_str());
 }
 
-void Config::Save(const char *saveReason) {
+bool Config::Save(const char *saveReason) {
 	if (!IsFirstInstance()) {
 		// TODO: Should we allow saving config if started from a different directory?
 		// How do we tell?
 		WARN_LOG(LOADER, "Not saving config - secondary instances don't.");
-		return;
+
+		// Don't want to retry or something.
+		return true;
 	}
 
 	if (jitForcedOff) {
 		// if JIT has been forced off, we don't want to screw up the user's ppsspp.ini
 		g_Config.iCpuCore = (int)CPUCore::JIT;
 	}
-	if (iniFilename_.size() && g_Config.bSaveSettings) {
+	if (!iniFilename_.empty() && g_Config.bSaveSettings) {
 		saveGameConfig(gameId_, gameIdTitle_);
 
 		CleanRecent();
 		IniFile iniFile;
-		if (!iniFile.Load(iniFilename_.c_str())) {
+		if (!iniFile.Load(iniFilename_)) {
 			ERROR_LOG(LOADER, "Error saving config - can't read ini '%s'", iniFilename_.c_str());
 		}
 
@@ -1414,23 +1510,22 @@ void Config::Save(const char *saveReason) {
 		if (LogManager::GetInstance())
 			LogManager::GetInstance()->SaveConfig(log);
 
-		if (!iniFile.Save(iniFilename_.c_str())) {
+		if (!iniFile.Save(iniFilename_)) {
 			ERROR_LOG(LOADER, "Error saving config (%s)- can't write ini '%s'", saveReason, iniFilename_.c_str());
-			System_SendMessage("toast", "Failed to save settings!\nCheck permissions, or try to restart the device.");
-			return;
+			return false;
 		}
 		INFO_LOG(LOADER, "Config saved (%s): '%s'", saveReason, iniFilename_.c_str());
 
 		if (!bGameSpecific) //otherwise we already did this in saveGameConfig()
 		{
 			IniFile controllerIniFile;
-			if (!controllerIniFile.Load(controllerIniFilename_.c_str())) {
-				ERROR_LOG(LOADER, "Error saving config - can't read ini '%s'", controllerIniFilename_.c_str());
+			if (!controllerIniFile.Load(controllerIniFilename_)) {
+				ERROR_LOG(LOADER, "Error saving controller config - can't read ini first '%s'", controllerIniFilename_.c_str());
 			}
 			KeyMap::SaveToIni(controllerIniFile);
-			if (!controllerIniFile.Save(controllerIniFilename_.c_str())) {
+			if (!controllerIniFile.Save(controllerIniFilename_)) {
 				ERROR_LOG(LOADER, "Error saving config - can't write ini '%s'", controllerIniFilename_.c_str());
-				return;
+				return false;
 			}
 			INFO_LOG(LOADER, "Controller config saved: %s", controllerIniFilename_.c_str());
 		}
@@ -1441,6 +1536,7 @@ void Config::Save(const char *saveReason) {
 		// force JIT off again just in case Config::Save() is called without exiting PPSSPP
 		g_Config.iCpuCore = (int)CPUCore::INTERPRETER;
 	}
+	return true;
 }
 
 // Use for debugging the version check without messing with the server
@@ -1536,7 +1632,7 @@ void Config::RemoveRecent(const std::string &file) {
 void Config::CleanRecent() {
 	std::vector<std::string> cleanedRecent;
 	for (size_t i = 0; i < recentIsos.size(); i++) {
-		FileLoader *loader = ConstructFileLoader(recentIsos[i]);
+		FileLoader *loader = ConstructFileLoader(Path(recentIsos[i]));
 		if (loader->ExistsFast()) {
 			// Make sure we don't have any redundant items.
 			auto duplicate = std::find(cleanedRecent.begin(), cleanedRecent.end(), recentIsos[i]);
@@ -1549,40 +1645,31 @@ void Config::CleanRecent() {
 	recentIsos = cleanedRecent;
 }
 
-void Config::SetDefaultPath(const std::string &defaultPath) {
-	defaultPath_ = defaultPath;
+void Config::SetSearchPath(const Path &searchPath) {
+	searchPath_ = searchPath;
 }
 
-void Config::AddSearchPath(const std::string &path) {
-	searchPath_.push_back(path);
-}
-
-const std::string Config::FindConfigFile(const std::string &baseFilename) {
+const Path Config::FindConfigFile(const std::string &baseFilename) {
 	// Don't search for an absolute path.
 	if (baseFilename.size() > 1 && baseFilename[0] == '/') {
-		return baseFilename;
+		return Path(baseFilename);
 	}
 #ifdef _WIN32
 	if (baseFilename.size() > 3 && baseFilename[1] == ':' && (baseFilename[2] == '/' || baseFilename[2] == '\\')) {
-		return baseFilename;
+		return Path(baseFilename);
 	}
 #endif
 
-	for (size_t i = 0; i < searchPath_.size(); ++i) {
-		std::string filename = searchPath_[i] + baseFilename;
-		if (File::Exists(filename)) {
-			return filename;
-		}
+	Path filename = searchPath_ / baseFilename;
+	if (File::Exists(filename)) {
+		return filename;
 	}
 
-	const std::string filename = defaultPath_.empty() ? baseFilename : defaultPath_ + baseFilename;
-	if (!File::Exists(filename)) {
-		std::string path;
-		SplitPath(filename, &path, NULL, NULL);
-		if (createdPath_ != path) {
-			File::CreateFullPath(path);
-			createdPath_ = path;
-		}
+	// Make sure at least the directory it's supposed to be in exists.
+	Path path = filename.NavigateUp();
+	// This check is just to avoid logging.
+	if (!File::Exists(path)) {
+		File::CreateFullPath(path);
 	}
 	return filename;
 }
@@ -1595,13 +1682,13 @@ void Config::RestoreDefaults() {
 		if (File::Exists(iniFilename_))
 			File::Delete(iniFilename_);
 		recentIsos.clear();
-		currentDirectory = "";
+		currentDirectory = defaultCurrentDirectory;
 	}
 	Load();
 }
 
 bool Config::hasGameConfig(const std::string &pGameId) {
-	std::string fullIniFilePath = getGameConfigFile(pGameId);
+	Path fullIniFilePath = getGameConfigFile(pGameId);
 	return File::Exists(fullIniFilePath);
 }
 
@@ -1614,27 +1701,26 @@ void Config::changeGameSpecific(const std::string &pGameId, const std::string &t
 }
 
 bool Config::createGameConfig(const std::string &pGameId) {
-	std::string fullIniFilePath = getGameConfigFile(pGameId);
+	Path fullIniFilePath = getGameConfigFile(pGameId);
 
 	if (hasGameConfig(pGameId)) {
 		return false;
 	}
 
 	File::CreateEmptyFile(fullIniFilePath);
-
 	return true;
 }
 
 bool Config::deleteGameConfig(const std::string& pGameId) {
-	std::string fullIniFilePath = getGameConfigFile(pGameId);
+	Path fullIniFilePath = Path(getGameConfigFile(pGameId));
 
 	File::Delete(fullIniFilePath);
 	return true;
 }
 
-std::string Config::getGameConfigFile(const std::string &pGameId) {
+Path Config::getGameConfigFile(const std::string &pGameId) {
 	std::string iniFileName = pGameId + "_ppsspp.ini";
-	std::string iniFileNameFull = FindConfigFile(iniFileName);
+	Path iniFileNameFull = FindConfigFile(iniFileName);
 
 	return iniFileNameFull;
 }
@@ -1644,7 +1730,7 @@ bool Config::saveGameConfig(const std::string &pGameId, const std::string &title
 		return false;
 	}
 
-	std::string fullIniFilePath = getGameConfigFile(pGameId);
+	Path fullIniFilePath = getGameConfigFile(pGameId);
 
 	IniFile iniFile;
 
@@ -1672,13 +1758,13 @@ bool Config::saveGameConfig(const std::string &pGameId, const std::string &title
 	}
 
 	KeyMap::SaveToIni(iniFile);
-	iniFile.Save(fullIniFilePath);
+	iniFile.Save(fullIniFilePath.ToString());
 
 	return true;
 }
 
 bool Config::loadGameConfig(const std::string &pGameId, const std::string &title) {
-	std::string iniFileNameFull = getGameConfigFile(pGameId);
+	Path iniFileNameFull = getGameConfigFile(pGameId);
 
 	if (!hasGameConfig(pGameId)) {
 		INFO_LOG(LOADER, "Failed to read %s. No game-specific settings found, using global defaults.", iniFileNameFull.c_str());
@@ -1687,7 +1773,7 @@ bool Config::loadGameConfig(const std::string &pGameId, const std::string &title
 
 	changeGameSpecific(pGameId, title);
 	IniFile iniFile;
-	iniFile.Load(iniFileNameFull);
+	iniFile.Load(iniFileNameFull.ToString());
 
 	auto postShaderSetting = iniFile.GetOrCreateSection("PostShaderSetting")->ToMap();
 	mPostShaderSetting.clear();
@@ -1717,7 +1803,7 @@ void Config::unloadGameConfig() {
 		changeGameSpecific();
 
 		IniFile iniFile;
-		iniFile.Load(iniFilename_);
+		iniFile.Load(iniFilename_.ToString());
 
 		// Reload game specific settings back to standard.
 		IterateSettings(iniFile, [](Section *section, ConfigSetting *setting) {
@@ -1745,7 +1831,7 @@ void Config::unloadGameConfig() {
 
 void Config::LoadStandardControllerIni() {
 	IniFile controllerIniFile;
-	if (!controllerIniFile.Load(controllerIniFilename_)) {
+	if (!controllerIniFile.Load(controllerIniFilename_.ToString())) {
 		ERROR_LOG(LOADER, "Failed to read %s. Setting controller config to default.", controllerIniFilename_.c_str());
 		KeyMap::RestoreDefault();
 	} else {
@@ -1766,7 +1852,7 @@ void Config::ResetControlLayout() {
 	g_Config.fDpadSpacing = 1.0f;
 	reset(g_Config.touchStartKey);
 	reset(g_Config.touchSelectKey);
-	reset(g_Config.touchUnthrottleKey);
+	reset(g_Config.touchFastForwardKey);
 	reset(g_Config.touchLKey);
 	reset(g_Config.touchRKey);
 	reset(g_Config.touchAnalogStick);
@@ -1776,11 +1862,11 @@ void Config::ResetControlLayout() {
 	reset(g_Config.touchCombo2);
 	reset(g_Config.touchCombo3);
 	reset(g_Config.touchCombo4);
-	reset(g_Config.touchSpeed1Key);
-	reset(g_Config.touchSpeed2Key);
-	reset(g_Config.touchRapidFireKey);
-	reset(g_Config.touchAnalogRotationCWKey);
-	reset(g_Config.touchAnalogRotationCCWKey);
+	reset(g_Config.touchCombo5);
+	reset(g_Config.touchCombo6);
+	reset(g_Config.touchCombo7);
+	reset(g_Config.touchCombo8);
+	reset(g_Config.touchCombo9);
 }
 
 void Config::GetReportingInfo(UrlEncoder &data) {

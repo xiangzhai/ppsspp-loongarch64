@@ -21,6 +21,7 @@
 
 #include "UI/MiscScreens.h"
 #include "Common/UI/UIScreen.h"
+#include "Common/File/Path.h"
 
 // Game screen: Allows you to start a game, delete saves, delete the game,
 // set game specific settings, etc.
@@ -30,8 +31,10 @@
 
 class GameScreen : public UIDialogScreenWithGameBackground {
 public:
-	GameScreen(const std::string &gamePath);
+	GameScreen(const Path &gamePath);
 	~GameScreen();
+
+	void update() override;
 
 	void render() override;
 
@@ -42,7 +45,7 @@ protected:
 	void CallbackDeleteConfig(bool yes);
 	void CallbackDeleteSaveData(bool yes);
 	void CallbackDeleteGame(bool yes);
-	bool isRecentGame(const std::string &gamePath);
+	bool isRecentGame(const Path &gamePath);
 
 private:
 	UI::Choice *AddOtherChoice(UI::Choice *choice);
@@ -60,20 +63,25 @@ private:
 	UI::EventReturn OnDeleteConfig(UI::EventParams &e);
 	UI::EventReturn OnCwCheat(UI::EventParams &e);
 	UI::EventReturn OnSetBackground(UI::EventParams &e);
+	UI::EventReturn OnDoCRC32(UI::EventParams& e);
 
 	// As we load metadata in the background, we need to be able to update these after the fact.
-	UI::TextView *tvTitle_;
-	UI::TextView *tvGameSize_;
-	UI::TextView *tvSaveDataSize_;
-	UI::TextView *tvInstallDataSize_;
-	UI::TextView *tvRegion_;
-	UI::TextView *tvCRC_;
+	UI::TextView *tvTitle_ = nullptr;
+	UI::TextView *tvGameSize_ = nullptr;
+	UI::TextView *tvSaveDataSize_ = nullptr;
+	UI::TextView *tvInstallDataSize_ = nullptr;
+	UI::TextView *tvRegion_ = nullptr;
+	UI::TextView *tvCRC_ = nullptr;
 
-	UI::Choice *btnGameSettings_;
-	UI::Choice *btnCreateGameConfig_;
-	UI::Choice *btnDeleteGameConfig_;
-	UI::Choice *btnDeleteSaveData_;
-	UI::Choice *btnSetBackground_;
+	UI::Choice *btnGameSettings_ = nullptr;
+	UI::Choice *btnCreateGameConfig_ = nullptr;
+	UI::Choice *btnDeleteGameConfig_ = nullptr;
+	UI::Choice *btnDeleteSaveData_ = nullptr;
+	UI::Choice *btnSetBackground_ = nullptr;
+
+	UI::Choice *btnCalcCRC_ = nullptr;
+
 	std::vector<UI::Choice *> otherChoices_;
-	std::vector<std::string> saveDirs;
+	std::vector<Path> saveDirs;
+	std::string CRC32string;
 };

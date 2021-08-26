@@ -28,12 +28,14 @@
 // Search for "availableTests".
 
 #include "ppsspp_config.h"
+
 #include <cstdio>
 #include <cstdlib>
 #include <cmath>
 #include <vector>
 #include <string>
 #include <sstream>
+
 #if PPSSPP_PLATFORM(ANDROID)
 #include <jni.h>
 #endif
@@ -41,7 +43,7 @@
 #include "Common/System/NativeApp.h"
 #include "Common/System/System.h"
 #include "Common/Input/InputState.h"
-#include "ext/disarm.h"
+#include "Common/File/Path.h"
 #include "Common/Math/math_util.h"
 #include "Common/Data/Text/Parsers.h"
 #include "Common/Data/Encoding/Utf8.h"
@@ -55,6 +57,8 @@
 #include "Core/MemMap.h"
 #include "Core/MIPS/MIPSVFPUUtils.h"
 #include "GPU/Common/TextureDecoder.h"
+
+#include "android/jni/AndroidContentURI.h"
 
 #include "unittest/JitHarness.h"
 #include "unittest/TestVertexJit.h"
@@ -73,8 +77,9 @@ bool System_GetPropertyBool(SystemProperty prop) {
 	switch (prop) {
 	case SYSPROP_CAN_JIT:
 		return true;
+	default:
+		return false;
 	}
-	return false;
 }
 
 #if PPSSPP_PLATFORM(ANDROID)
@@ -580,6 +585,80 @@ static bool TestMemMap() {
 	return true;
 }
 
+static bool TestPath() {
+	// Also test the Path class while we're at it.
+	Path path("/asdf/jkl/");
+	EXPECT_EQ_STR(path.ToString(), std::string("/asdf/jkl"));
+
+	Path path2("/asdf/jkl");
+	EXPECT_EQ_STR(path2.NavigateUp().ToString(), std::string("/asdf"));
+
+	Path path3 = path2 / "foo/bar";
+	EXPECT_EQ_STR(path3.WithExtraExtension(".txt").ToString(), std::string("/asdf/jkl/foo/bar.txt"));
+
+	EXPECT_EQ_STR(Path("foo.bar/hello").GetFileExtension(), std::string(""));
+	EXPECT_EQ_STR(Path("foo.bar/hello.txt").WithReplacedExtension(".txt", ".html").ToString(), std::string("foo.bar/hello.html"));
+
+	EXPECT_EQ_STR(Path("C:\\Yo").NavigateUp().ToString(), std::string("C:"));
+	EXPECT_EQ_STR(Path("C:").NavigateUp().ToString(), std::string("/"));
+
+	EXPECT_EQ_STR(Path("C:\\Yo").GetDirectory(), std::string("C:"));
+	EXPECT_EQ_STR(Path("C:\\Yo").GetFilename(), std::string("Yo"));
+	EXPECT_EQ_STR(Path("C:\\Yo\\Lo").GetDirectory(), std::string("C:/Yo"));
+	EXPECT_EQ_STR(Path("C:\\Yo\\Lo").GetFilename(), std::string("Lo"));
+
+	std::string computedPath;
+
+	EXPECT_TRUE(Path("/a/b").ComputePathTo(Path("/a/b/c/d/e"), computedPath));
+
+	EXPECT_EQ_STR(computedPath, std::string("c/d/e"));
+
+	EXPECT_TRUE(Path("/").ComputePathTo(Path("/home/foo/bar"), computedPath));
+	EXPECT_EQ_STR(computedPath, std::string("home/foo/bar"));
+
+	return true;
+}
+
+static bool TestAndroidContentURI() {
+	static const char *treeURIString = "content://com.android.externalstorage.documents/tree/primary%3APSP%20ISO";
+	static const char *directoryURIString = "content://com.android.externalstorage.documents/tree/primary%3APSP%20ISO/document/primary%3APSP%20ISO";
+	static const char *fileTreeURIString = "content://com.android.externalstorage.documents/tree/primary%3APSP%20ISO/document/primary%3APSP%20ISO%2FTekken%206.iso";
+	static const char *fileNonTreeString = "content://com.android.externalstorage.documents/document/primary%3APSP%2Fcrash_bad_execaddr.prx";
+
+
+	AndroidContentURI treeURI;
+	EXPECT_TRUE(treeURI.Parse(std::string(treeURIString)));
+	AndroidContentURI dirURI;
+	EXPECT_TRUE(dirURI.Parse(std::string(directoryURIString)));
+	AndroidContentURI fileTreeURI;
+	EXPECT_TRUE(fileTreeURI.Parse(std::string(fileTreeURIString)));
+	AndroidContentURI fileTreeURICopy;
+	EXPECT_TRUE(fileTreeURICopy.Parse(std::string(fileTreeURIString)));
+	AndroidContentURI fileURI;
+	EXPECT_TRUE(fileURI.Parse(std::string(fileNonTreeString)));
+
+	EXPECT_EQ_STR(fileTreeURI.GetLastPart(), std::string("Tekken 6.iso"));
+
+	EXPECT_TRUE(treeURI.TreeContains(fileTreeURI));
+
+	EXPECT_TRUE(fileTreeURI.CanNavigateUp());
+	fileTreeURI.NavigateUp();
+	EXPECT_FALSE(fileTreeURI.CanNavigateUp());
+	
+	EXPECT_EQ_STR(fileTreeURI.FilePath(), fileTreeURI.RootPath());
+
+	EXPECT_EQ_STR(fileTreeURI.ToString(), std::string(directoryURIString));
+
+	std::string diff;
+	EXPECT_TRUE(dirURI.ComputePathTo(fileTreeURICopy, diff));
+	EXPECT_EQ_STR(diff, std::string("Tekken 6.iso"));
+
+	EXPECT_EQ_STR(fileURI.GetFileExtension(), std::string(".prx"));
+	EXPECT_FALSE(fileURI.CanNavigateUp());
+
+	return true;
+}
+
 typedef bool (*TestFunc)();
 struct TestItem {
 	const char *name;
@@ -592,6 +671,7 @@ bool TestArmEmitter();
 bool TestArm64Emitter();
 bool TestX64Emitter();
 bool TestShaderGenerators();
+bool TestThreadManager();
 
 TestItem availableTests[] = {
 #if PPSSPP_ARCH(ARM64) || PPSSPP_ARCH(AMD64) || PPSSPP_ARCH(X86)
@@ -616,6 +696,9 @@ TestItem availableTests[] = {
 	TEST_ITEM(CLZ),
 	TEST_ITEM(MemMap),
 	TEST_ITEM(ShaderGenerators),
+	TEST_ITEM(Path),
+	TEST_ITEM(AndroidContentURI),
+	TEST_ITEM(ThreadManager),
 };
 
 int main(int argc, const char *argv[]) {

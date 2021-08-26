@@ -16,6 +16,7 @@
 // https://github.com/hrydgard/ppsspp and http://www.ppsspp.org/.
 
 #include <algorithm>
+#include <cstring>
 
 #include "ppsspp_config.h"
 
@@ -23,6 +24,7 @@
 #include "Common/System/NativeApp.h"
 #include "Common/System/System.h"
 #include "Common/GPU/OpenGL/GLFeatures.h"
+#include "Common/File/AndroidStorage.h"
 #include "Common/Data/Text/I18n.h"
 #include "Common/Net/HTTPClient.h"
 #include "Common/UI/Context.h"
@@ -59,11 +61,7 @@
 int GetD3DCompilerVersion();
 #endif
 
-#if PPSSPP_PLATFORM(ANDROID)
-
 #include "android/jni/app-android.h"
-
-#endif
 
 static const char *logLevelList[] = {
 	"Notice",
@@ -423,6 +421,18 @@ const char *GetCompilerABI() {
 	return "x86";
 #elif PPSSPP_ARCH(AMD64)
 	return "x86-64";
+#elif PPSSPP_ARCH(RISCV64)
+    //https://github.com/riscv/riscv-toolchain-conventions#cc-preprocessor-definitions
+    //https://github.com/riscv/riscv-c-api-doc/blob/master/riscv-c-api.md#abi-related-preprocessor-definitions
+    #if defined(__riscv_float_abi_single)
+        return "lp64f";
+    #elif defined(__riscv_float_abi_double)
+        return "lp64d";
+    #elif defined(__riscv_float_abi_quad)
+        return "lp64q";
+    #elif defined(__riscv_float_abi_soft)
+        return "lp64";
+    #endif
 #else
 	return "other";
 #endif
@@ -471,14 +481,15 @@ void SystemInfoScreen::CreateViews() {
 #endif
 
 	deviceSpecs->Add(new ItemHeader(si->T("CPU Information")));
-	deviceSpecs->Add(new InfoItem(si->T("CPU Name", "Name"), cpu_info.brand_string));
-#if PPSSPP_ARCH(ARM) || PPSSPP_ARCH(ARM64) || PPSSPP_ARCH(MIPS) || PPSSPP_ARCH(MIPS64)
-	deviceSpecs->Add(new InfoItem(si->T("Cores"), StringFromInt(cpu_info.num_cores)));
-#else
+
+	// Don't bother showing the CPU name if we don't have one.
+	if (strcmp(cpu_info.brand_string, "Unknown") != 0) {
+		deviceSpecs->Add(new InfoItem(si->T("CPU Name", "Name"), cpu_info.brand_string));
+	}
+
 	int totalThreads = cpu_info.num_cores * cpu_info.logical_cpu_count;
 	std::string cores = StringFromFormat(si->T("%d (%d per core, %d cores)"), totalThreads, cpu_info.logical_cpu_count, cpu_info.num_cores);
 	deviceSpecs->Add(new InfoItem(si->T("Threads"), cores));
-#endif
 #if PPSSPP_PLATFORM(IOS)
 	deviceSpecs->Add(new InfoItem(si->T("JIT available"), System_GetPropertyBool(SYSPROP_CAN_JIT) ? di->T("Yes") : di->T("No")));
 #endif
@@ -589,15 +600,18 @@ void SystemInfoScreen::CreateViews() {
 
 	storage->Add(new ItemHeader(si->T("Directories")));
 	// Intentionally non-translated
-	storage->Add(new InfoItem("MemStickDirectory", g_Config.memStickDirectory));
-	storage->Add(new InfoItem("InternalDataDirectory", g_Config.internalDataDirectory));
-	storage->Add(new InfoItem("AppCacheDir", g_Config.appCacheDirectory));
-	storage->Add(new InfoItem("ExtStorageDir", g_Config.externalDirectory));
+	storage->Add(new InfoItem("MemStickDirectory", g_Config.memStickDirectory.ToVisualString()));
+	storage->Add(new InfoItem("InternalDataDirectory", g_Config.internalDataDirectory.ToVisualString()));
+	storage->Add(new InfoItem("AppCacheDir", g_Config.appCacheDirectory.ToVisualString()));
+	storage->Add(new InfoItem("DefaultCurrentDir", g_Config.defaultCurrentDirectory.ToVisualString()));
 
 #if PPSSPP_PLATFORM(ANDROID)
 	storage->Add(new InfoItem("ExtFilesDir", g_extFilesDir));
-	if (System_GetPropertyBool(SYSPROP_ANDROID_SCOPED_STORAGE)) {
-		storage->Add(new InfoItem("Scoped Storage", di->T("Yes")));
+	bool scoped = System_GetPropertyBool(SYSPROP_ANDROID_SCOPED_STORAGE);
+	storage->Add(new InfoItem("Scoped Storage Enabled", scoped ? di->T("Yes") : di->T("No")));
+	if (System_GetPropertyInt(SYSPROP_SYSTEMVERSION) >= 30) {
+		// This flag is only relevant on Android API 30+.
+		storage->Add(new InfoItem("IsStoragePreservedLegacy", Android_IsExternalStoragePreservedLegacy() ? di->T("Yes") : di->T("No")));
 	}
 #endif
 
@@ -1184,7 +1198,7 @@ UI::EventReturn FrameDumpTestScreen::OnLoadDump(UI::EventParams &params) {
 	// Our disc streaming functionality detects the URL and takes over and handles loading framedumps well,
 	// except for some reason the game ID.
 	// TODO: Fix that since it can be important for compat settings.
-	LaunchFile(screenManager(), url);
+	LaunchFile(screenManager(), Path(url));
 	return UI::EVENT_DONE;
 }
 
@@ -1192,7 +1206,8 @@ void FrameDumpTestScreen::update() {
 	UIScreen::update();
 
 	if (!listing_) {
-		listing_ = g_DownloadManager.StartDownload(framedumpsBaseUrl, "");
+		const char *acceptMime = "text/html, */*; q=0.8";
+		listing_ = g_DownloadManager.StartDownload(framedumpsBaseUrl, Path(), acceptMime);
 	}
 
 	if (listing_ && listing_->Done() && files_.empty()) {

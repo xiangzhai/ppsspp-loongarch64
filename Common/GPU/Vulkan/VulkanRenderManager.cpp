@@ -20,6 +20,8 @@
 #define UINT64_MAX 0xFFFFFFFFFFFFFFFFULL
 #endif
 
+using namespace PPSSPP_VK;
+
 VKRFramebuffer::VKRFramebuffer(VulkanContext *vk, VkCommandBuffer initCmd, VkRenderPass renderPass, int _width, int _height, const char *tag) : vulkan_(vk) {
 	width = _width;
 	height = _height;
@@ -392,7 +394,7 @@ VulkanRenderManager::~VulkanRenderManager() {
 }
 
 void VulkanRenderManager::ThreadFunc() {
-	setCurrentThreadName("RenderMan");
+	SetCurrentThreadName("RenderMan");
 	int threadFrame = threadInitFrame_;
 	bool nextFrame = false;
 	bool firstFrame = true;

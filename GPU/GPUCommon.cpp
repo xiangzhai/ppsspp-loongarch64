@@ -5,7 +5,7 @@
 
 #include "Common/Profiler/Profiler.h"
 
-#include "Common/ColorConv.h"
+#include "Common/Data/Convert/ColorConv.h"
 #include "Common/GraphicsContext.h"
 #include "Common/Serialize/Serializer.h"
 #include "Common/Serialize/SerializeFuncs.h"
@@ -486,7 +486,7 @@ void GPUCommon::DeviceRestore() {
 void GPUCommon::UpdateVsyncInterval(bool force) {
 #if !(PPSSPP_PLATFORM(ANDROID) || defined(USING_QT_UI) || PPSSPP_PLATFORM(UWP) || PPSSPP_PLATFORM(IOS))
 	int desiredVSyncInterval = g_Config.bVSync ? 1 : 0;
-	if (PSP_CoreParameter().unthrottle) {
+	if (PSP_CoreParameter().fastForward) {
 		desiredVSyncInterval = 0;
 	}
 	if (PSP_CoreParameter().fpsLimit != FPSLimit::NORMAL) {

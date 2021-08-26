@@ -92,14 +92,15 @@
     <ClCompile Include="..\..\Common\ArmCPUDetect.cpp" />
     <ClCompile Include="..\..\Common\ArmEmitter.cpp" />
     <ClCompile Include="..\..\Common\Serialize\Serializer.cpp" />
-    <ClCompile Include="..\..\Common\ColorConv.cpp" />
-    <ClCompile Include="..\..\Common\ColorConvNEON.cpp" />
+    <ClCompile Include="..\..\Common\Data\Convert\ColorConv.cpp" />
+    <ClCompile Include="..\..\Common\Data\Convert\ColorConvNEON.cpp" />
     <ClCompile Include="..\..\Common\ConsoleListener.cpp" />
     <ClCompile Include="..\..\Common\CPUDetect.cpp" />
     <ClCompile Include="..\..\Common\FakeCPUDetect.cpp" />
     <ClCompile Include="..\..\Common\ExceptionHandlerSetup.cpp" />
     <ClCompile Include="..\..\Common\Log.cpp" />
     <ClCompile Include="..\..\Common\LogManager.cpp" />
+    <ClCompile Include="..\..\Common\LogReporting.cpp" />
     <ClCompile Include="..\..\Common\MemArenaAndroid.cpp" />
     <ClCompile Include="..\..\Common\MemArenaDarwin.cpp" />
     <ClCompile Include="..\..\Common\MemArenaPosix.cpp" />
@@ -124,6 +125,7 @@
       <Filter>Crypto</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Common\Buffer.cpp" />
+    <ClCompile Include="..\..\Common\Net\NetBuffer.cpp" />
     <ClCompile Include="..\..\ext\libpng17\png.c">
       <Filter>ext\libpng17</Filter>
     </ClCompile>
@@ -178,13 +180,10 @@
     <ClCompile Include="..\..\Common\Input\InputState.cpp">
       <Filter>Input</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\Common\Thread\Executor.cpp">
+    <ClCompile Include="..\..\Common\Thread\ThreadManager.cpp">
       <Filter>Thread</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\Common\Thread\PrioritizedWorkQueue.cpp">
-      <Filter>Thread</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\Common\Thread\ThreadPool.cpp">
+    <ClCompile Include="..\..\Common\Thread\ParallelLoop.cpp">
       <Filter>Thread</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Common\Thread\ThreadUtil.cpp">
@@ -242,6 +241,9 @@
       <Filter>Math\lin</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Common\File\DiskFree.cpp">
+      <Filter>File</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Common\File\Path.cpp">
       <Filter>File</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Common\File\PathBrowser.cpp">
@@ -373,6 +375,9 @@
     <ClCompile Include="..\..\Common\GPU\ShaderTranslation.cpp">
       <Filter>GPU</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\Common\File\AndroidStorage.cpp">
+      <Filter>File</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="targetver.h" />
@@ -384,8 +389,8 @@
     <ClInclude Include="..\..\Common\BitScan.h" />
     <ClInclude Include="..\..\Common\Serialize\Serializer.h" />
     <ClInclude Include="..\..\Common\CodeBlock.h" />
-    <ClInclude Include="..\..\Common\ColorConv.h" />
-    <ClInclude Include="..\..\Common\ColorConvNEON.h" />
+    <ClInclude Include="..\..\Common\Data\Convert\ColorConv.h" />
+    <ClInclude Include="..\..\Common\Data\Convert\ColorConvNEON.h" />
     <ClInclude Include="..\..\Common\Common.h" />
     <ClInclude Include="..\..\Common\CommonFuncs.h" />
     <ClInclude Include="..\..\Common\CommonTypes.h" />
@@ -397,6 +402,7 @@
     <ClInclude Include="..\..\Common\GraphicsContext.h" />
     <ClInclude Include="..\..\Common\Log.h" />
     <ClInclude Include="..\..\Common\LogManager.h" />
+    <ClInclude Include="..\..\Common\LogReporting.h" />
     <ClInclude Include="..\..\Common\MemArena.h" />
     <ClInclude Include="..\..\Common\MemoryUtil.h" />
     <ClInclude Include="..\..\Common\MipsEmitter.h" />
@@ -418,6 +424,7 @@
       <Filter>Crypto</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Common\Buffer.h" />
+    <ClInclude Include="..\..\Common\Net\NetBuffer.h" />
     <ClInclude Include="..\..\Common\Serialize\SerializeDeque.h" />
     <ClInclude Include="..\..\Common\Serialize\SerializeFuncs.h" />
     <ClInclude Include="..\..\Common\Serialize\SerializeList.h" />
@@ -453,13 +460,16 @@
     <ClInclude Include="..\..\Common\Input\KeyCodes.h">
       <Filter>Input</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\Common\Thread\Executor.h">
+    <ClInclude Include="..\..\Common\Thread\Channel.h">
       <Filter>Thread</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\Common\Thread\PrioritizedWorkQueue.h">
+    <ClInclude Include="..\..\Common\Thread\ParallelLoop.h">
       <Filter>Thread</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\Common\Thread\ThreadPool.h">
+    <ClInclude Include="..\..\Common\Thread\Promise.h">
+      <Filter>Thread</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Common\Thread\ThreadManager.h">
       <Filter>Thread</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Common\Thread\ThreadUtil.h">
@@ -535,6 +545,9 @@
       <Filter>File</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Common\File\PathBrowser.h">
+      <Filter>File</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Common\File\Path.h">
       <Filter>File</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Common\Data\Format\RIFF.h">
@@ -680,6 +693,9 @@
     </ClInclude>
     <ClInclude Include="..\..\Common\GPU\ShaderTranslation.h">
       <Filter>GPU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Common\File\AndroidStorage.h">
+      <Filter>File</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
